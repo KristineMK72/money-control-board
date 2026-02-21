@@ -2,19 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
-type BucketKey =
-  | "car"
-  | "insurance"
-  | "power"
-  | "tsa"
-  | "collections"
-  | "bill347"
-  | "cps"
-  | "verizon"
-  | "varo"
-  | "deb"
-  | "buffer"
-  | "gas";
+type BucketKey = string;
 
 type Bucket = {
   key: BucketKey;
@@ -55,6 +43,15 @@ function todayISO() {
 function uid() {
   return Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
 }
+function slugKey(name: string) {
+  const base = (name || "")
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return base || "bucket";
+}
 
 export default function MoneyPage() {
   const [buckets, setBuckets] = useState<Bucket[]>([
@@ -64,16 +61,14 @@ export default function MoneyPage() {
     { key: "power", name: "Crow Wing Power", target: 137, saved: 0, due: "ASAP", priority: 1, focus: true },
     { key: "collections", name: "$100 Before Collections", target: 100, saved: 0, due: "ASAP", priority: 1, focus: true },
 
-    // Priority 2 (important)
+    // Priority 2
     { key: "tsa", name: "TSA Temp 10-day", target: 45, saved: 0, due: "before Tues trip", priority: 2, focus: true },
     { key: "bill347", name: "Bill Due Mar 3", target: 347, saved: 0, due: "Mar 3", priority: 2, focus: true },
-
-    // Negotiated / timing
     { key: "cps", name: "CPS (negotiate / partial)", target: 632, saved: 0, due: "call Sunday", priority: 2, focus: true },
     { key: "verizon", name: "Verizon (one-time spike)", target: 320, saved: 0, due: "Feb 28", priority: 2, focus: true },
     { key: "varo", name: "Varo", target: 81, saved: 0, due: "Feb 28", priority: 2, focus: true },
 
-    // Priority 3 (later)
+    // Priority 3
     { key: "deb", name: "Deb (owed)", target: 500, saved: 0, due: "structured", priority: 3 },
     { key: "buffer", name: "Emergency Buffer", target: 500, saved: 0, due: "6-week goal", priority: 3 },
     { key: "gas", name: "Gas / Daily Needs", target: 0, saved: 0, due: "rolling", priority: 3 },
@@ -87,6 +82,13 @@ export default function MoneyPage() {
 
   const [allocKey, setAllocKey] = useState<BucketKey>("insurance");
   const [allocAmt, setAllocAmt] = useState<number>(0);
+
+  // Manage Buckets form
+  const [newName, setNewName] = useState("");
+  const [newTarget, setNewTarget] = useState<number>(0);
+  const [newDue, setNewDue] = useState("");
+  const [newPriority, setNewPriority] = useState<1 | 2 | 3>(2);
+  const [newFocus, setNewFocus] = useState(true);
 
   // Load
   useEffect(() => {
@@ -192,14 +194,13 @@ export default function MoneyPage() {
   }
 
   function autoFundEssentials() {
-    // Order that matches your real life right now
     const order: BucketKey[] = ["insurance", "power", "car", "collections", "tsa", "bill347"];
     let unassigned = totals.unassigned;
     if (unassigned <= 0) return;
 
     for (const k of order) {
       const b = bucketsByKey.get(k);
-      if (!b) continue;
+      if (!b || b.target <= 0) continue;
       const remaining = clampMoney(Math.max(0, b.target - b.saved));
       if (remaining <= 0) continue;
       const pay = clampMoney(Math.min(unassigned, remaining));
@@ -209,6 +210,48 @@ export default function MoneyPage() {
       unassigned = clampMoney(unassigned - pay);
       if (unassigned <= 0) break;
     }
+  }
+
+  // --- Manage Buckets actions ---
+  function updateBucket(key: BucketKey, patch: Partial<Bucket>) {
+    setBuckets((prev) =>
+      prev.map((b) => (b.key === key ? { ...b, ...patch, target: clampMoney(patch.target ?? b.target) } : b))
+    );
+  }
+
+  function removeBucket(key: BucketKey) {
+    const ok = confirm("Delete this bucket? (Existing allocations will remain in history but won't map to a bucket.)");
+    if (!ok) return;
+    setBuckets((prev) => prev.filter((b) => b.key !== key));
+  }
+
+  function addBucket() {
+    const name = newName.trim();
+    if (!name) return;
+
+    const baseKey = slugKey(name);
+    let key = baseKey;
+    let i = 2;
+    while (buckets.some((b) => b.key === key)) {
+      key = `${baseKey}-${i++}`;
+    }
+
+    const bucket: Bucket = {
+      key,
+      name,
+      target: clampMoney(newTarget),
+      saved: 0,
+      due: newDue.trim() || undefined,
+      priority: newPriority,
+      focus: newFocus,
+    };
+
+    setBuckets((prev) => [bucket, ...prev]);
+    setNewName("");
+    setNewTarget(0);
+    setNewDue("");
+    setNewPriority(2);
+    setNewFocus(true);
   }
 
   function resetAll() {
@@ -245,6 +288,9 @@ export default function MoneyPage() {
           <div style={{ opacity: 0.75, marginTop: 6 }}>
             Focus: <b>Now → March 7</b> · Fund buckets, not stress.
           </div>
+          <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/data" style={linkBtn()}>View /data (export/import)</a>
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -263,7 +309,7 @@ export default function MoneyPage() {
         <SummaryCard title="Unassigned" value={fmt(totals.unassigned)} />
       </div>
 
-      <Section title="Now → Mar 7 Buckets" subtitle="These are the only buckets that matter before March 7." />
+      <Section title="Now → Mar 7 Buckets" subtitle="Only what matters before March 7." />
       <div style={styles.bucketGrid}>
         {focusBuckets
           .slice()
@@ -353,6 +399,97 @@ export default function MoneyPage() {
         </button>
       </div>
 
+      <Section title="Manage Buckets" subtitle="Add, edit, or delete buckets (bills, goals, categories)." />
+      <div style={styles.panel}>
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ fontWeight: 900 }}>Add a bucket</div>
+          <div style={styles.manageRow}>
+            <label style={styles.label}>
+              Name
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g., Groceries" style={styles.input} />
+            </label>
+            <label style={styles.label}>
+              Target (optional)
+              <input
+                inputMode="decimal"
+                value={newTarget ? String(newTarget) : ""}
+                onChange={(e) => setNewTarget(Number(e.target.value))}
+                placeholder="0"
+                style={styles.input}
+              />
+            </label>
+            <label style={styles.label}>
+              Due (optional)
+              <input value={newDue} onChange={(e) => setNewDue(e.target.value)} placeholder="e.g., Mar 15" style={styles.input} />
+            </label>
+            <label style={styles.label}>
+              Priority
+              <select value={newPriority} onChange={(e) => setNewPriority(Number(e.target.value) as any)} style={styles.input}>
+                <option value={1}>1 (Must)</option>
+                <option value={2}>2 (Important)</option>
+                <option value={3}>3 (Later)</option>
+              </select>
+            </label>
+            <label style={{ ...styles.label, alignSelf: "end" }}>
+              <span>Show in Focus</span>
+              <input type="checkbox" checked={newFocus} onChange={(e) => setNewFocus(e.target.checked)} />
+            </label>
+
+            <button onClick={addBucket} style={btn()} disabled={!newName.trim()}>
+              Add Bucket
+            </button>
+          </div>
+
+          <div style={{ marginTop: 10, fontWeight: 900 }}>Edit existing buckets</div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {buckets.map((b) => (
+              <div key={b.key} style={{ borderTop: "1px solid rgba(0,0,0,0.08)", paddingTop: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1.4fr 1fr auto auto", gap: 8, alignItems: "end" }}>
+                  <label style={styles.label}>
+                    Name
+                    <input value={b.name} onChange={(e) => updateBucket(b.key, { name: e.target.value })} style={styles.input} />
+                  </label>
+                  <label style={styles.label}>
+                    Target
+                    <input
+                      inputMode="decimal"
+                      value={b.target ? String(b.target) : ""}
+                      onChange={(e) => updateBucket(b.key, { target: Number(e.target.value) })}
+                      style={styles.input}
+                    />
+                  </label>
+                  <label style={styles.label}>
+                    Due
+                    <input value={b.due ?? ""} onChange={(e) => updateBucket(b.key, { due: e.target.value })} style={styles.input} />
+                  </label>
+                  <label style={styles.label}>
+                    Priority
+                    <select value={b.priority} onChange={(e) => updateBucket(b.key, { priority: Number(e.target.value) as any })} style={styles.input}>
+                      <option value={1}>1</option>
+                      <option value={2}>2</option>
+                      <option value={3}>3</option>
+                    </select>
+                  </label>
+
+                  <label style={{ ...styles.label, alignSelf: "end" }}>
+                    <span>Focus</span>
+                    <input type="checkbox" checked={!!b.focus} onChange={(e) => updateBucket(b.key, { focus: e.target.checked })} />
+                  </label>
+
+                  <button onClick={() => removeBucket(b.key)} style={btn("danger")}>
+                    Delete
+                  </button>
+                </div>
+
+                <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }}>
+                  Key: <code>{b.key}</code> · Saved: <b>{fmt(b.saved)}</b>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <Section title="Entries (by day)" subtitle="Your log, grouped by date." />
       <div style={{ display: "grid", gap: 12 }}>
         {grouped.dates.length === 0 ? (
@@ -406,7 +543,7 @@ export default function MoneyPage() {
       </div>
 
       <footer style={{ marginTop: 24, opacity: 0.7, fontSize: 13 }}>
-        Tip: After you log income, hit <b>Auto-Fund Essentials</b> to fill Insurance → Power → Car → Collections → TSA → $347 first.
+        Tip: Log income → then <b>Auto-Fund Essentials</b>. For backup or moving devices, use <b>/data</b> export.
       </footer>
     </div>
   );
@@ -445,9 +582,7 @@ function BucketCard({ bucket }: { bucket: Bucket }) {
             (P{bucket.priority}){bucket.due ? ` · ${bucket.due}` : ""}
           </span>
         </div>
-        <div style={{ fontWeight: 900 }}>
-          {target > 0 ? `${fmt(saved)} / ${fmt(target)}` : fmt(saved)}
-        </div>
+        <div style={{ fontWeight: 900 }}>{target > 0 ? `${fmt(saved)} / ${fmt(target)}` : fmt(saved)}</div>
       </div>
 
       {target > 0 ? (
@@ -479,6 +614,10 @@ function btn(kind: "default" | "danger" = "default"): React.CSSProperties {
   };
   if (kind === "danger") return { ...base, border: "1px solid rgba(180,0,0,0.35)", color: "rgb(140,0,0)" };
   return base;
+}
+
+function linkBtn(): React.CSSProperties {
+  return { ...btn(), textDecoration: "none", display: "inline-block", color: "black" };
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -529,6 +668,12 @@ const styles: Record<string, React.CSSProperties> = {
   allocRow: {
     display: "grid",
     gridTemplateColumns: "2fr 1fr auto",
+    gap: 8,
+    alignItems: "end",
+  },
+  manageRow: {
+    display: "grid",
+    gridTemplateColumns: "2fr 1fr 1.4fr 1fr auto auto",
     gap: 8,
     alignItems: "end",
   },
