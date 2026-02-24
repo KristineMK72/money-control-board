@@ -14,11 +14,8 @@ type Bucket = {
   target: number; // goal amount
   saved: number; // allocated so far
 
-  // optional due date for math (recommended)
-  dueDate?: string; // YYYY-MM-DD
-
-  // old label stays as note
-  due?: string;
+  dueDate?: string; // YYYY-MM-DD (optional)
+  due?: string; // human note (optional)
 
   priority: 1 | 2 | 3; // 1 must, 2 important, 3 later
   focus?: boolean; // show in "Now → Mar 7"
@@ -33,7 +30,7 @@ type Entry = {
   allocations: Partial<Record<BucketKey, number>>;
 };
 
-const STORAGE_KEY = "money-control-board-v2";
+const STORAGE_KEY = "money-control-board-v3";
 
 /* =============================
    HELPERS
@@ -44,9 +41,11 @@ function clampMoney(n: number) {
   const v = Math.round(n * 100) / 100;
   return Math.max(0, v);
 }
+
 function fmt(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
+
 function todayISO() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -54,9 +53,11 @@ function todayISO() {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
+
 function uid() {
   return Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
 }
+
 function slugKey(name: string) {
   const base = (name || "")
     .toLowerCase()
@@ -66,11 +67,13 @@ function slugKey(name: string) {
     .replace(/^-+|-+$/g, "");
   return base || "bucket";
 }
+
 function addDaysISO(iso: string, days: number) {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
 function startOfWeekISO(iso: string) {
   // Monday start
   const d = new Date(iso + "T00:00:00");
@@ -79,13 +82,77 @@ function startOfWeekISO(iso: string) {
   d.setDate(d.getDate() - mondayOffset);
   return d.toISOString().slice(0, 10);
 }
+
 function endOfWeekISO(iso: string) {
   return addDaysISO(startOfWeekISO(iso), 6);
 }
+
 function daysBetween(aISO: string, bISO: string) {
   const a = new Date(aISO + "T00:00:00").getTime();
   const b = new Date(bISO + "T00:00:00").getTime();
   return Math.round((b - a) / (1000 * 60 * 60 * 24));
+}
+
+/* =============================
+   UI HELPERS
+============================= */
+
+function btn(kind: "default" | "danger" = "default"): React.CSSProperties {
+  const base: React.CSSProperties = {
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(0,0,0,0.14)",
+    background: "rgba(255,255,255,0.92)",
+    backdropFilter: "blur(6px)",
+    cursor: "pointer",
+    fontWeight: 900,
+  };
+  if (kind === "danger") return { ...base, border: "1px solid rgba(180,0,0,0.35)", color: "rgb(140,0,0)" };
+  return base;
+}
+
+function linkBtn(): React.CSSProperties {
+  return { ...btn(), textDecoration: "none", display: "inline-block", color: "black" };
+}
+
+function Section({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div style={{ marginTop: 18, marginBottom: 10 }}>
+      <div style={{ fontSize: 18, fontWeight: 950 }}>{title}</div>
+      {subtitle ? <div style={{ opacity: 0.72, marginTop: 4 }}>{subtitle}</div> : null}
+    </div>
+  );
+}
+
+function SummaryCard({ title, value, hint }: { title: string; value: string; hint?: string }) {
+  return (
+    <div style={styles.panel}>
+      <div style={{ opacity: 0.72, fontSize: 13, marginBottom: 6, fontWeight: 800 }}>{title}</div>
+      <div style={{ fontSize: 22, fontWeight: 950 }}>{value}</div>
+      {hint ? <div style={{ marginTop: 8, opacity: 0.72, fontSize: 13 }}>{hint}</div> : null}
+    </div>
+  );
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 10px",
+        borderRadius: 999,
+        border: "1px solid rgba(0,0,0,0.12)",
+        background: "rgba(255,255,255,0.75)",
+        fontSize: 12,
+        fontWeight: 900,
+        opacity: 0.9,
+      }}
+    >
+      {children}
+    </span>
+  );
 }
 
 /* =============================
@@ -99,18 +166,18 @@ export default function MoneyPage() {
     // Priority 1 (must)
     { key: "car", name: "Car Repair", target: 300, saved: 0, due: "ASAP (safety + income)", priority: 1, focus: true },
     { key: "insurance", name: "Insurance", target: 124, saved: 0, due: "before Feb 23", priority: 1, focus: true, dueDate: "2026-02-23" },
-    { key: "power", name: "Crow Wing Power", target: 137, saved: 0, due: "ASAP", priority: 1, focus: true, dueDate: "" },
+    { key: "power", name: "Crow Wing Power", target: 137, saved: 0, due: "ASAP", priority: 1, focus: true },
     { key: "collections", name: "$100 Before Collections", target: 100, saved: 0, due: "ASAP", priority: 1, focus: true },
 
     // Priority 2
-    { key: "tsa", name: "TSA Temp 10-day", target: 45, saved: 0, due: "before Tues trip", priority: 2, focus: true, dueDate: "" },
+    { key: "tsa", name: "TSA Temp 10-day", target: 45, saved: 0, due: "before Tues trip", priority: 2, focus: true },
     { key: "bill347", name: "Bill Due Mar 3", target: 347, saved: 0, due: "Mar 3", priority: 2, focus: true, dueDate: "2026-03-03" },
     { key: "cps", name: "CPS (negotiate / partial)", target: 632, saved: 0, due: "call Sunday", priority: 2, focus: true },
     { key: "verizon", name: "Verizon (one-time spike)", target: 320, saved: 0, due: "Feb 28", priority: 2, focus: true, dueDate: "2026-02-28" },
     { key: "varo", name: "Varo", target: 81, saved: 0, due: "Feb 28", priority: 2, focus: true, dueDate: "2026-02-28" },
 
     // Priority 3
-    { key: "deb", name: "Deb (owed)", target: 500, saved: 0, due: "structured", priority: 3, dueDate: "" },
+    { key: "deb", name: "Deb (owed)", target: 500, saved: 0, due: "structured", priority: 3 },
     { key: "buffer", name: "Emergency Buffer", target: 500, saved: 0, due: "6-week goal", priority: 3 },
     { key: "gas", name: "Gas / Daily Needs", target: 0, saved: 0, due: "rolling", priority: 3 },
   ]);
@@ -132,7 +199,8 @@ export default function MoneyPage() {
   const [newPriority, setNewPriority] = useState<1 | 2 | 3>(2);
   const [newFocus, setNewFocus] = useState(true);
 
-  // Load
+  /* ---------- Load / Save ---------- */
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -154,7 +222,6 @@ export default function MoneyPage() {
     }
   }, []);
 
-  // Save
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ buckets, entries }));
@@ -162,6 +229,8 @@ export default function MoneyPage() {
       // ignore
     }
   }, [buckets, entries]);
+
+  /* ---------- Derived ---------- */
 
   const totals = useMemo(() => {
     const income = entries.reduce((s, e) => s + (e.amount || 0), 0);
@@ -179,6 +248,11 @@ export default function MoneyPage() {
     return m;
   }, [buckets]);
 
+  function remaining(b: Bucket) {
+    if (b.target <= 0) return 0;
+    return clampMoney(Math.max(0, b.target - b.saved));
+  }
+
   function recomputeBucketSaved(nextEntries: Entry[]) {
     const sums: Record<string, number> = {};
     for (const e of nextEntries) {
@@ -194,10 +268,7 @@ export default function MoneyPage() {
     );
   }
 
-  function remaining(b: Bucket) {
-    if (b.target <= 0) return 0;
-    return clampMoney(Math.max(0, b.target - b.saved));
-  }
+  /* ---------- Actions ---------- */
 
   function addIncome() {
     const amt = clampMoney(entryAmount);
@@ -254,6 +325,7 @@ export default function MoneyPage() {
     const order = buckets
       .slice()
       .sort((a, b) => {
+        // Focus buckets first, then priority 1 -> 3
         const af = a.focus ? 0 : 1;
         const bf = b.focus ? 0 : 1;
         if (af !== bf) return af - bf;
@@ -284,7 +356,12 @@ export default function MoneyPage() {
     setBuckets((prev) =>
       prev.map((b) =>
         b.key === key
-          ? { ...b, ...patch, target: clampMoney(patch.target ?? b.target), saved: clampMoney(patch.saved ?? b.saved) }
+          ? {
+              ...b,
+              ...patch,
+              target: clampMoney(patch.target ?? b.target),
+              saved: clampMoney(patch.saved ?? b.saved),
+            }
           : b
       )
     );
@@ -317,6 +394,7 @@ export default function MoneyPage() {
     };
 
     setBuckets((prev) => [bucket, ...prev]);
+
     setNewName("");
     setNewTarget(0);
     setNewDue("");
@@ -335,11 +413,17 @@ export default function MoneyPage() {
     } catch {}
   }
 
+  /* ---------- Planning (weekly + daily + 4-week goal) ---------- */
+
   const plan = useMemo(() => {
     const w1Start = startOfWeekISO(now);
     const w1End = endOfWeekISO(w1Start);
     const w2Start = addDaysISO(w1End, 1);
     const w2End = endOfWeekISO(w2Start);
+    const w3Start = addDaysISO(w2End, 1);
+    const w3End = endOfWeekISO(w3Start);
+    const w4Start = addDaysISO(w3End, 1);
+    const w4End = endOfWeekISO(w4Start);
 
     const dayHorizonEnd = addDaysISO(now, 7);
 
@@ -353,14 +437,17 @@ export default function MoneyPage() {
       .filter((x) => x.rem > 0);
 
     const inRange = (d: string, a: string, z: string) => d >= a && d <= z;
+    const sum = (arr: typeof candidates) => clampMoney(arr.reduce((s, x) => s + x.rem, 0));
 
     const week1 = candidates.filter((x) => x.dueDate && inRange(x.dueDate, w1Start, w1End));
     const week2 = candidates.filter((x) => x.dueDate && inRange(x.dueDate, w2Start, w2End));
-    const later = candidates.filter((x) => x.dueDate && x.dueDate > w2End);
+    const week3 = candidates.filter((x) => x.dueDate && inRange(x.dueDate, w3Start, w3End));
+    const week4 = candidates.filter((x) => x.dueDate && inRange(x.dueDate, w4Start, w4End));
+
+    const later = candidates.filter((x) => x.dueDate && x.dueDate > w4End);
     const unscheduled = candidates.filter((x) => !x.dueDate);
 
-    const sum = (arr: typeof candidates) => clampMoney(arr.reduce((s, x) => s + x.rem, 0));
-
+    // next 7 days daily pacing
     const soon = candidates
       .filter((x) => x.dueDate && inRange(x.dueDate, now, dayHorizonEnd))
       .slice()
@@ -373,6 +460,16 @@ export default function MoneyPage() {
       return { ...x, daysLeft, perDay };
     });
 
+    // weeks array (used for the “what I need each week” strip)
+    const weeks = [
+      { label: `Week 1 (${w1Start} → ${w1End})`, start: w1Start, end: w1End, total: sum(week1) },
+      { label: `Week 2 (${w2Start} → ${w2End})`, start: w2Start, end: w2End, total: sum(week2) },
+      { label: `Week 3 (${w3Start} → ${w3End})`, start: w3Start, end: w3End, total: sum(week3) },
+      { label: `Week 4 (${w4Start} → ${w4End})`, start: w4Start, end: w4End, total: sum(week4) },
+    ];
+
+    const avg4 = clampMoney(weeks.reduce((s, w) => s + w.total, 0) / 4);
+
     return {
       w1Start,
       w1End,
@@ -384,7 +481,10 @@ export default function MoneyPage() {
         later: sum(later),
         unscheduled: sum(unscheduled),
       },
+      weeks,
+      avg4,
       dailyNeed,
+      bounds: { w1Start, w1End, w2Start, w2End, w3Start, w3End, w4Start, w4End },
     };
   }, [buckets, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -402,15 +502,79 @@ export default function MoneyPage() {
     return { byDate, dates };
   }, [entries]);
 
+  // For “why is this week total what it is?”
+  function listForWeek(startISO: string, endISO: string) {
+    const rows = buckets
+      .filter((b) => b.target > 0)
+      .map((b) => ({
+        b,
+        rem: remaining(b),
+        dueDate: (b.dueDate || "").trim(),
+      }))
+      .filter((x) => x.rem > 0 && x.dueDate && x.dueDate >= startISO && x.dueDate <= endISO)
+      .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+    return rows;
+  }
+  function BucketCard({ bucket }: { bucket: Bucket }) {
+    const target = bucket.target;
+    const saved = bucket.saved;
+    const pct = target > 0 ? Math.min(100, Math.round((saved / target) * 100)) : 0;
+    const rem = target > 0 ? Math.max(0, target - saved) : 0;
+
+    const dueLabel = (bucket.dueDate || "").trim()
+      ? `Due ${bucket.dueDate}`
+      : bucket.due
+      ? bucket.due
+      : "No due date";
+
+    return (
+      <div style={styles.panel}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 950 }}>
+            {bucket.name}{" "}
+            <span style={{ fontWeight: 800, opacity: 0.65 }}>
+              · P{bucket.priority} · {dueLabel}
+            </span>
+          </div>
+          <div style={{ fontWeight: 950 }}>
+            {target > 0 ? `${fmt(saved)} / ${fmt(target)}` : fmt(saved)}
+          </div>
+        </div>
+
+        {target > 0 ? (
+          <>
+            <div style={{ height: 10 }} />
+            <div style={{ height: 10, background: "rgba(0,0,0,0.08)", borderRadius: 999 }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: "rgba(0,0,0,0.58)", borderRadius: 999 }} />
+            </div>
+            <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", gap: 12, opacity: 0.78 }}>
+              <div>
+                <Badge>{pct}%</Badge>
+              </div>
+              <div style={{ fontWeight: 900 }}>Remaining: {fmt(rem)}</div>
+            </div>
+          </>
+        ) : (
+          <div style={{ marginTop: 8, opacity: 0.75 }}>Rolling bucket (no fixed target)</div>
+        )}
+      </div>
+    );
+  }
+
+  // "Why" list for Week 1 to show right under Week 1 card
+  const week1Items = useMemo(() => listForWeek(plan.bounds.w1Start, plan.bounds.w1End), [buckets, plan.bounds.w1Start, plan.bounds.w1End]);
+  const week2Items = useMemo(() => listForWeek(plan.bounds.w2Start, plan.bounds.w2End), [buckets, plan.bounds.w2Start, plan.bounds.w2End]);
+
   return (
     <div style={styles.shell}>
       <header style={styles.header}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 26 }}>Money Control Board</h1>
-          <div style={{ opacity: 0.75, marginTop: 6 }}>
+          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 950 }}>Money Control Board</h1>
+          <div style={{ opacity: 0.78, marginTop: 6 }}>
             Focus: <b>Now → March 7</b> · Fund buckets, not stress.
           </div>
-          <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
+
+          <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href="/data" style={linkBtn()}>
               View /data (export/import)
             </a>
@@ -433,34 +597,110 @@ export default function MoneyPage() {
       <div style={styles.summaryGrid}>
         <SummaryCard title="Income Logged" value={fmt(totals.income)} />
         <SummaryCard title="Allocated" value={fmt(totals.allocated)} />
-        <SummaryCard title="Unassigned" value={fmt(totals.unassigned)} />
+        <SummaryCard title="Unassigned" value={fmt(totals.unassigned)} hint="This is what you can allocate next." />
       </div>
 
-      <Section title="Weekly Plan (Remaining Needed)" subtitle="Set Due Date in Manage Buckets to power these totals." />
+      <Section
+        title="Weekly Plan (Remaining Needed)"
+        subtitle="Powered by due dates. If a bucket has no due date, it shows up in Unscheduled."
+      />
+
       <div style={styles.weekGrid}>
-        <SummaryCard title={`This Week (${plan.w1Start} → ${plan.w1End})`} value={fmt(plan.totals.week1)} />
-        <SummaryCard title={`Next Week (${plan.w2Start} → ${plan.w2End})`} value={fmt(plan.totals.week2)} />
+        <div style={styles.panel}>
+          <div style={{ opacity: 0.72, fontSize: 13, marginBottom: 6, fontWeight: 800 }}>
+            This Week ({plan.w1Start} → {plan.w1End})
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 950 }}>{fmt(plan.totals.week1)}</div>
+
+          {/* 👇 clearer “why” list under Week 1 */}
+          <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+            {week1Items.length === 0 ? (
+              <div style={{ opacity: 0.72, fontSize: 13 }}>No due dates set for this week.</div>
+            ) : (
+              week1Items.slice(0, 5).map((x) => (
+                <div key={x.b.key} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 13 }}>
+                  <div style={{ opacity: 0.88 }}>
+                    {x.b.name} <span style={{ opacity: 0.65 }}>· {x.dueDate}</span>
+                  </div>
+                  <div style={{ fontWeight: 900 }}>{fmt(x.rem)}</div>
+                </div>
+              ))
+            )}
+            {week1Items.length > 5 ? <div style={{ opacity: 0.72, fontSize: 12 }}>+ {week1Items.length - 5} more…</div> : null}
+          </div>
+        </div>
+
+        <div style={styles.panel}>
+          <div style={{ opacity: 0.72, fontSize: 13, marginBottom: 6, fontWeight: 800 }}>
+            Next Week ({plan.w2Start} → {plan.w2End})
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 950 }}>{fmt(plan.totals.week2)}</div>
+
+          {/* optional “why” list for Week 2 */}
+          <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+            {week2Items.length === 0 ? (
+              <div style={{ opacity: 0.72, fontSize: 13 }}>No due dates set for next week.</div>
+            ) : (
+              week2Items.slice(0, 5).map((x) => (
+                <div key={x.b.key} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 13 }}>
+                  <div style={{ opacity: 0.88 }}>
+                    {x.b.name} <span style={{ opacity: 0.65 }}>· {x.dueDate}</span>
+                  </div>
+                  <div style={{ fontWeight: 900 }}>{fmt(x.rem)}</div>
+                </div>
+              ))
+            )}
+            {week2Items.length > 5 ? <div style={{ opacity: 0.72, fontSize: 12 }}>+ {week2Items.length - 5} more…</div> : null}
+          </div>
+        </div>
+
         <SummaryCard title="Later" value={fmt(plan.totals.later)} />
         <SummaryCard title="Unscheduled" value={fmt(plan.totals.unscheduled)} />
+      </div>
+
+      <Section title="What I need each week (clear view)" subtitle="4-week forecast + a simple weekly goal suggestion." />
+
+      <div style={styles.weekStrip}>
+        {plan.weeks.map((w) => (
+          <div key={w.label} style={styles.weekCard}>
+            <div style={{ fontSize: 13, opacity: 0.78, fontWeight: 900 }}>{w.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 950, marginTop: 8 }}>{fmt(w.total)}</div>
+            <div style={{ marginTop: 8, opacity: 0.78, fontSize: 13 }}>
+              Daily pace: <b>{fmt(clampMoney(w.total / 7))}</b>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <div style={styles.panel}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ fontWeight: 950, fontSize: 16 }}>Suggested weekly income target</div>
+            <div style={{ fontWeight: 950, fontSize: 20 }}>{fmt(plan.avg4)}</div>
+          </div>
+          <div style={{ marginTop: 6, opacity: 0.78, fontSize: 13 }}>
+            Average of Weeks 1–4 (based on what’s still remaining).
+          </div>
+        </div>
       </div>
 
       <Section title="Daily Need (Next 7 days)" subtitle="A calm daily pace based on due dates in the next week." />
       <div style={styles.panel}>
         {plan.dailyNeed.length === 0 ? (
-          <div style={{ opacity: 0.75 }}>Nothing with a due date in the next 7 days (or due dates not set yet).</div>
+          <div style={{ opacity: 0.78 }}>Nothing with a due date in the next 7 days (or due dates not set yet).</div>
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
             {plan.dailyNeed.map((x) => (
               <div key={x.b.key} style={styles.row}>
                 <div>
-                  <div style={{ fontWeight: 900 }}>{x.b.name}</div>
-                  <div style={{ opacity: 0.75, fontSize: 13 }}>
+                  <div style={{ fontWeight: 950 }}>{x.b.name}</div>
+                  <div style={{ opacity: 0.78, fontSize: 13 }}>
                     Due: <b>{x.dueDate}</b> · Remaining: <b>{fmt(x.rem)}</b> {x.b.due ? `· ${x.b.due}` : ""}
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontWeight: 900 }}>{fmt(x.perDay)}/day</div>
-                  <div style={{ opacity: 0.75, fontSize: 13 }}>{x.daysLeft} days left</div>
+                  <div style={{ fontWeight: 950 }}>{fmt(x.perDay)}/day</div>
+                  <div style={{ opacity: 0.78, fontSize: 13 }}>{x.daysLeft} days left</div>
                 </div>
               </div>
             ))}
@@ -553,11 +793,7 @@ export default function MoneyPage() {
           />
         </label>
 
-        <button
-          onClick={allocateUnassigned}
-          style={btn()}
-          disabled={clampMoney(allocAmt) <= 0 || totals.unassigned < clampMoney(allocAmt)}
-        >
+        <button onClick={allocateUnassigned} style={btn()} disabled={clampMoney(allocAmt) <= 0 || totals.unassigned < clampMoney(allocAmt)}>
           Allocate
         </button>
       </div>
@@ -565,12 +801,14 @@ export default function MoneyPage() {
       <Section title="Manage Buckets" subtitle="Add, edit, or delete buckets. Set Due Date to power the weekly/daily totals." />
       <div style={styles.panel}>
         <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ fontWeight: 900 }}>Add a bucket</div>
+          <div style={{ fontWeight: 950 }}>Add a bucket</div>
+
           <div style={styles.manageRow}>
             <label style={styles.label}>
               Name
               <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g., Groceries" style={styles.input} />
             </label>
+
             <label style={styles.label}>
               Target
               <input
@@ -581,14 +819,17 @@ export default function MoneyPage() {
                 style={styles.input}
               />
             </label>
+
             <label style={styles.label}>
               Due note
               <input value={newDue} onChange={(e) => setNewDue(e.target.value)} placeholder="ASAP / Feb 28" style={styles.input} />
             </label>
+
             <label style={styles.label}>
               Due date
               <input type="date" value={newDueDate} onChange={(e) => setNewDueDate(e.target.value)} style={styles.input} />
             </label>
+
             <label style={styles.label}>
               Priority
               <select value={newPriority} onChange={(e) => setNewPriority(Number(e.target.value) as any)} style={styles.input}>
@@ -597,6 +838,7 @@ export default function MoneyPage() {
                 <option value={3}>3</option>
               </select>
             </label>
+
             <label style={{ ...styles.label, alignSelf: "end" }}>
               <span>Focus</span>
               <input type="checkbox" checked={newFocus} onChange={(e) => setNewFocus(e.target.checked)} />
@@ -607,7 +849,7 @@ export default function MoneyPage() {
             </button>
           </div>
 
-          <div style={{ marginTop: 10, fontWeight: 900 }}>Edit existing buckets</div>
+          <div style={{ marginTop: 10, fontWeight: 950 }}>Edit existing buckets</div>
 
           <div style={{ display: "grid", gap: 10 }}>
             {buckets.map((b) => (
@@ -617,6 +859,7 @@ export default function MoneyPage() {
                     Name
                     <input value={b.name} onChange={(e) => updateBucket(b.key, { name: e.target.value })} style={styles.input} />
                   </label>
+
                   <label style={styles.label}>
                     Target
                     <input
@@ -626,26 +869,20 @@ export default function MoneyPage() {
                       style={styles.input}
                     />
                   </label>
+
                   <label style={styles.label}>
                     Due note
                     <input value={b.due ?? ""} onChange={(e) => updateBucket(b.key, { due: e.target.value })} style={styles.input} />
                   </label>
+
                   <label style={styles.label}>
                     Due date
-                    <input
-                      type="date"
-                      value={b.dueDate ?? ""}
-                      onChange={(e) => updateBucket(b.key, { dueDate: e.target.value })}
-                      style={styles.input}
-                    />
+                    <input type="date" value={b.dueDate ?? ""} onChange={(e) => updateBucket(b.key, { dueDate: e.target.value })} style={styles.input} />
                   </label>
+
                   <label style={styles.label}>
                     Priority
-                    <select
-                      value={b.priority}
-                      onChange={(e) => updateBucket(b.key, { priority: Number(e.target.value) as any })}
-                      style={styles.input}
-                    >
+                    <select value={b.priority} onChange={(e) => updateBucket(b.key, { priority: Number(e.target.value) as any })} style={styles.input}>
                       <option value={1}>1</option>
                       <option value={2}>2</option>
                       <option value={3}>3</option>
@@ -662,7 +899,7 @@ export default function MoneyPage() {
                   </button>
                 </div>
 
-                <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }}>
+                <div style={{ marginTop: 6, opacity: 0.78, fontSize: 13 }}>
                   Key: <code>{b.key}</code> · Saved: <b>{fmt(b.saved)}</b> · Remaining: <b>{fmt(remaining(b))}</b>
                 </div>
               </div>
@@ -674,13 +911,13 @@ export default function MoneyPage() {
       <Section title="Entries (by day)" subtitle="Your log, grouped by date." />
       <div style={{ display: "grid", gap: 12 }}>
         {grouped.dates.length === 0 ? (
-          <div style={{ opacity: 0.75 }}>No entries yet. Add income above, then allocate to buckets.</div>
+          <div style={{ opacity: 0.78 }}>No entries yet. Add income above, then allocate to buckets.</div>
         ) : (
           grouped.dates.map((d) => (
             <div key={d} style={styles.panel}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div style={{ fontWeight: 800 }}>{d}</div>
-                <div style={{ opacity: 0.75 }}>
+                <div style={{ fontWeight: 950 }}>{d}</div>
+                <div style={{ opacity: 0.78 }}>
                   Day total: {fmt(grouped.byDate.get(d)!.reduce((s, e) => s + e.amount, 0))}
                 </div>
               </div>
@@ -688,17 +925,15 @@ export default function MoneyPage() {
               {grouped.byDate.get(d)!.map((e) => {
                 const allocatedInEntry = Object.values(e.allocations || {}).reduce((x, v) => x + (v || 0), 0);
                 const room = clampMoney(e.amount - allocatedInEntry);
+
                 return (
-                  <div
-                    key={e.id}
-                    style={{ borderTop: "1px solid rgba(0,0,0,0.08)", paddingTop: 10, marginTop: 10 }}
-                  >
+                  <div key={e.id} style={{ borderTop: "1px solid rgba(0,0,0,0.08)", paddingTop: 10, marginTop: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <div>
                         <b>{e.source}</b> · {fmt(e.amount)}{" "}
-                        {e.note ? <span style={{ opacity: 0.75 }}>— {e.note}</span> : null}
+                        {e.note ? <span style={{ opacity: 0.78 }}>— {e.note}</span> : null}
                       </div>
-                      <div style={{ opacity: 0.75 }}>Unallocated: {fmt(room)}</div>
+                      <div style={{ opacity: 0.78 }}>Unallocated: {fmt(room)}</div>
                     </div>
 
                     {Object.keys(e.allocations || {}).length > 0 && (
@@ -708,7 +943,7 @@ export default function MoneyPage() {
                           return (
                             <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                               <div style={{ opacity: 0.9 }}>{b?.name ?? k}</div>
-                              <div style={{ fontWeight: 700 }}>{fmt(v || 0)}</div>
+                              <div style={{ fontWeight: 900 }}>{fmt(v || 0)}</div>
                             </div>
                           );
                         })}
@@ -722,84 +957,18 @@ export default function MoneyPage() {
         )}
       </div>
 
-      <footer style={{ marginTop: 24, opacity: 0.7, fontSize: 13 }}>
+      <footer style={{ marginTop: 24, opacity: 0.78, fontSize: 13 }}>
         Tip: Add due dates for bills to power Weekly Plan + Daily Need. Use <b>/data</b> to export/import your board.
       </footer>
     </div>
   );
 }
-function SummaryCard({ title, value }: { title: string; value: string }) {
-  return (
-    <div style={styles.panel}>
-      <div style={{ opacity: 0.7, fontSize: 13, marginBottom: 6 }}>{title}</div>
-      <div style={{ fontSize: 22, fontWeight: 900 }}>{value}</div>
-    </div>
-  );
-}
 
-function Section({ title, subtitle }: { title: string; subtitle?: string }) {
-  return (
-    <div style={{ marginTop: 18, marginBottom: 10 }}>
-      <div style={{ fontSize: 18, fontWeight: 900 }}>{title}</div>
-      {subtitle ? <div style={{ opacity: 0.7, marginTop: 4 }}>{subtitle}</div> : null}
-    </div>
-  );
-}
+/* =============================
+   STYLES
+============================= */
 
-function BucketCard({ bucket }: { bucket: Bucket }) {
-  const target = bucket.target;
-  const saved = bucket.saved;
-  const pct = target > 0 ? Math.min(100, Math.round((saved / target) * 100)) : 0;
-  const remaining = target > 0 ? Math.max(0, target - saved) : 0;
-
-  return (
-    <div style={styles.panel}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-        <div style={{ fontWeight: 900 }}>
-          {bucket.name}{" "}
-          <span style={{ fontWeight: 700, opacity: 0.6 }}>
-            (P{bucket.priority})
-            {bucket.due ? ` · ${bucket.due}` : ""}
-            {bucket.dueDate ? ` · ${bucket.dueDate}` : ""}
-          </span>
-        </div>
-        <div style={{ fontWeight: 900 }}>{target > 0 ? `${fmt(saved)} / ${fmt(target)}` : fmt(saved)}</div>
-      </div>
-
-      {target > 0 ? (
-        <>
-          <div style={{ height: 10 }} />
-          <div style={{ height: 10, background: "rgba(0,0,0,0.08)", borderRadius: 999 }}>
-            <div style={{ width: `${pct}%`, height: "100%", background: "rgba(0,0,0,0.55)", borderRadius: 999 }} />
-          </div>
-          <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", gap: 12, opacity: 0.75 }}>
-            <div>{pct}%</div>
-            <div>Remaining: {fmt(remaining)}</div>
-          </div>
-        </>
-      ) : (
-        <div style={{ marginTop: 8, opacity: 0.75 }}>Rolling bucket (no fixed target)</div>
-      )}
-    </div>
-  );
-}
-
-function btn(kind: "default" | "danger" = "default"): React.CSSProperties {
-  const base: React.CSSProperties = {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(0,0,0,0.18)",
-    background: "white",
-    cursor: "pointer",
-    fontWeight: 900,
-  };
-  if (kind === "danger") return { ...base, border: "1px solid rgba(180,0,0,0.35)", color: "rgb(140,0,0)" };
-  return base;
-}
-
-function linkBtn(): React.CSSProperties {
-  return { ...btn(), textDecoration: "none", display: "inline-block", color: "black" };
-}
+const BACKGROUND_COLOR = "#eef4ff"; // change this: #f7f2ff (lavender) or #edf8f3 (mint)
 
 const styles: Record<string, React.CSSProperties> = {
   shell: {
@@ -807,7 +976,7 @@ const styles: Record<string, React.CSSProperties> = {
     margin: "0 auto",
     padding: 16,
     fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
-    background: "#f5f5f5",
+    background: BACKGROUND_COLOR,
     minHeight: "100vh",
   },
   header: {
@@ -817,7 +986,8 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     flexWrap: "wrap",
     padding: 14,
-    background: "white",
+    background: "rgba(255,255,255,0.92)",
+    backdropFilter: "blur(6px)",
     borderRadius: 16,
     border: "1px solid rgba(0,0,0,0.10)",
     boxShadow: "0 1px 0 rgba(0,0,0,0.04)",
@@ -834,6 +1004,20 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12,
     marginTop: 12,
   },
+  weekStrip: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 12,
+    marginTop: 12,
+  },
+  weekCard: {
+    border: "1px solid rgba(0,0,0,0.10)",
+    borderRadius: 16,
+    padding: 14,
+    background: "rgba(255,255,255,0.92)",
+    backdropFilter: "blur(6px)",
+    boxShadow: "0 1px 0 rgba(0,0,0,0.04)",
+  },
   bucketGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
@@ -843,7 +1027,8 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(0,0,0,0.10)",
     borderRadius: 16,
     padding: 14,
-    background: "white",
+    background: "rgba(255,255,255,0.92)",
+    backdropFilter: "blur(6px)",
     boxShadow: "0 1px 0 rgba(0,0,0,0.04)",
   },
   row: {
@@ -877,7 +1062,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     alignItems: "end",
   },
-  label: { display: "grid", gap: 6, fontSize: 13, opacity: 0.95 },
+  label: { display: "grid", gap: 6, fontSize: 13, opacity: 0.96 },
   input: {
     width: "100%",
     padding: "10px 10px",
