@@ -11,14 +11,24 @@ type BucketKey = string;
 type Bucket = {
   key: BucketKey;
   name: string;
-  target: number; // goal amount
-  saved: number; // allocated so far
+
+  target: number; // goal amount (used by planner + remaining math)
+  saved: number; // allocated so far (computed from entries allocations)
 
   dueDate?: string; // YYYY-MM-DD (optional)
   due?: string; // human note (optional)
 
   priority: 1 | 2 | 3; // 1 must, 2 important, 3 later
   focus?: boolean; // show in "Now → Mar 7"
+
+  // ✅ NEW (optional) credit/loan fields
+  balance?: number; // current balance (for display only)
+  apr?: number; // APR % (for display only)
+
+  // ✅ NEW (optional) monthly auto-add fields (credit cards / loans)
+  isMonthly?: boolean; // if true, bucket auto-updates each month
+  monthlyTarget?: number; // what target becomes each month
+  dueDay?: number; // day of month (1-31) used to auto-set dueDate
 };
 
 type Entry = {
@@ -30,13 +40,27 @@ type Entry = {
   allocations: Partial<Record<BucketKey, number>>;
 };
 
-const STORAGE_KEY = "money-control-board-v3";
+type StorageShape = {
+  buckets: Bucket[];
+  entries: Entry[];
+  meta?: {
+    lastMonthlyApplied?: string; // YYYY-MM (e.g., "2026-03")
+  };
+};
+
+const STORAGE_KEY = "money-control-board-v4";
 
 /* =============================
    HELPERS
 ============================= */
 
 function clampMoney(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  const v = Math.round(n * 100) / 100;
+  return Math.max(0, v);
+}
+
+function clampPercent(n: number) {
   if (!Number.isFinite(n)) return 0;
   const v = Math.round(n * 100) / 100;
   return Math.max(0, v);
@@ -52,6 +76,11 @@ function todayISO() {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+function monthKeyFromISO(iso: string) {
+  // iso = YYYY-MM-DD -> YYYY-MM
+  return iso.slice(0, 7);
 }
 
 function uid() {
@@ -91,6 +120,57 @@ function daysBetween(aISO: string, bISO: string) {
   const a = new Date(aISO + "T00:00:00").getTime();
   const b = new Date(bISO + "T00:00:00").getTime();
   return Math.round((b - a) / (1000 * 60 * 60 * 24));
+}
+
+function clampDayOfMonth(d: number) {
+  if (!Number.isFinite(d)) return 1;
+  return Math.min(31, Math.max(1, Math.floor(d)));
+}
+
+function dueDateForNextOccurrence(nowISO: string, dueDay: number) {
+  // Sets due date to this month on dueDay if not passed; else next month on dueDay.
+  const now = new Date(nowISO + "T00:00:00");
+  const y = now.getFullYear();
+  const m = now.getMonth(); // 0-11
+  const today = now.getDate();
+
+  const day = clampDayOfMonth(dueDay);
+
+  // candidate this month
+  if (today <= day) {
+    const d = new Date(Date.UTC(y, m, day));
+    return d.toISOString().slice(0, 10);
+  }
+
+  // next month
+  const d = new Date(Date.UTC(y, m + 1, day));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * ✅ Monthly auto-add:
+ * If bucket.isMonthly is true, each new month:
+ * - bucket.target becomes bucket.monthlyTarget (>=0)
+ * - bucket.dueDate becomes next occurrence of bucket.dueDay
+ * - bucket.saved is NOT changed
+ */
+function applyMonthlyAutoAdd(nowISO: string, buckets: Bucket[]) {
+  const updated = buckets.map((b) => {
+    if (!b.isMonthly) return b;
+
+    const monthlyTarget = clampMoney(b.monthlyTarget ?? b.target);
+    const dueDay = clampDayOfMonth(b.dueDay ?? 1);
+    const dueDate = dueDateForNextOccurrence(nowISO, dueDay);
+
+    return {
+      ...b,
+      target: monthlyTarget,
+      dueDate,
+      // leave saved alone
+    };
+  });
+
+  return updated;
 }
 
 /* =============================
@@ -161,6 +241,7 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 export default function MoneyPage() {
   const now = todayISO();
+  const nowMonthKey = monthKeyFromISO(now);
 
   const [buckets, setBuckets] = useState<Bucket[]>([
     // Priority 1 (must)
@@ -180,6 +261,9 @@ export default function MoneyPage() {
     { key: "deb", name: "Deb (owed)", target: 500, saved: 0, due: "structured", priority: 3 },
     { key: "buffer", name: "Emergency Buffer", target: 500, saved: 0, due: "6-week goal", priority: 3 },
     { key: "gas", name: "Gas / Daily Needs", target: 0, saved: 0, due: "rolling", priority: 3 },
+
+    // ✅ Example monthly credit buckets (optional — you can delete or edit these)
+    // { key: "sparrow", name: "Sparrow (Min Payment)", target: 35, saved: 0, priority: 2, focus: true, isMonthly: true, monthlyTarget: 35, dueDay: 18, balance: 304.39, apr: 0 },
   ]);
 
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -199,36 +283,89 @@ export default function MoneyPage() {
   const [newPriority, setNewPriority] = useState<1 | 2 | 3>(2);
   const [newFocus, setNewFocus] = useState(true);
 
+  // ✅ NEW manage fields
+  const [newBalance, setNewBalance] = useState<number>(0);
+  const [newApr, setNewApr] = useState<number>(0);
+  const [newIsMonthly, setNewIsMonthly] = useState<boolean>(false);
+  const [newMonthlyTarget, setNewMonthlyTarget] = useState<number>(0);
+  const [newDueDay, setNewDueDay] = useState<number>(1);
+
   /* ---------- Load / Save ---------- */
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw) as { buckets: Bucket[]; entries: Entry[] };
+      const parsed = JSON.parse(raw) as StorageShape;
 
       if (parsed?.buckets?.length) {
         const fixed = parsed.buckets.map((b) => ({
           ...b,
           target: clampMoney(b.target),
           saved: clampMoney(b.saved),
+          balance: b.balance == null ? undefined : clampMoney(b.balance),
+          apr: b.apr == null ? undefined : clampPercent(b.apr),
+          monthlyTarget: b.monthlyTarget == null ? undefined : clampMoney(b.monthlyTarget),
+          dueDay: b.dueDay == null ? undefined : clampDayOfMonth(b.dueDay),
           dueDate: (b as any).dueDate ?? "",
+          isMonthly: !!b.isMonthly,
         }));
-        setBuckets(fixed);
+
+        // ✅ Apply monthly auto-add only once per month (idempotent)
+        const last = parsed?.meta?.lastMonthlyApplied || "";
+        const shouldApply = last !== monthKeyFromISO(todayISO());
+        const maybeUpdated = shouldApply ? applyMonthlyAutoAdd(todayISO(), fixed) : fixed;
+
+        setBuckets(maybeUpdated);
+        if (shouldApply) {
+          const nextStore: StorageShape = { buckets: maybeUpdated, entries: parsed.entries || [], meta: { lastMonthlyApplied: monthKeyFromISO(todayISO()) } };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(nextStore));
+        }
       }
+
       if (parsed?.entries?.length) setEntries(parsed.entries);
     } catch {
       // ignore
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ buckets, entries }));
+      const payload: StorageShape = {
+        buckets,
+        entries,
+        meta: {
+          lastMonthlyApplied: nowMonthKey,
+        },
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {
       // ignore
     }
-  }, [buckets, entries]);
+  }, [buckets, entries, nowMonthKey]);
+
+  // ✅ Also ensure the “monthly apply” happens if the app stays open across months
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as StorageShape;
+      const last = parsed?.meta?.lastMonthlyApplied || "";
+      if (last === nowMonthKey) return;
+
+      setBuckets((prev) => {
+        const next = applyMonthlyAutoAdd(now, prev);
+        try {
+          const payload: StorageShape = { buckets: next, entries: parsed.entries || [], meta: { lastMonthlyApplied: nowMonthKey } };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        } catch {}
+        return next;
+      });
+    } catch {
+      // ignore
+    }
+  }, [now, nowMonthKey]);
 
   /* ---------- Derived ---------- */
 
@@ -325,7 +462,6 @@ export default function MoneyPage() {
     const order = buckets
       .slice()
       .sort((a, b) => {
-        // Focus buckets first, then priority 1 -> 3
         const af = a.focus ? 0 : 1;
         const bf = b.focus ? 0 : 1;
         if (af !== bf) return af - bf;
@@ -361,6 +497,11 @@ export default function MoneyPage() {
               ...patch,
               target: clampMoney(patch.target ?? b.target),
               saved: clampMoney(patch.saved ?? b.saved),
+              balance: patch.balance == null ? b.balance : clampMoney(patch.balance),
+              apr: patch.apr == null ? b.apr : clampPercent(patch.apr),
+              monthlyTarget: patch.monthlyTarget == null ? b.monthlyTarget : clampMoney(patch.monthlyTarget),
+              dueDay: patch.dueDay == null ? b.dueDay : clampDayOfMonth(patch.dueDay),
+              isMonthly: patch.isMonthly == null ? b.isMonthly : !!patch.isMonthly,
             }
           : b
       )
@@ -382,6 +523,8 @@ export default function MoneyPage() {
     let i = 2;
     while (buckets.some((b) => b.key === key)) key = `${baseKey}-${i++}`;
 
+    const isMonthly = !!newIsMonthly;
+
     const bucket: Bucket = {
       key,
       name,
@@ -391,9 +534,21 @@ export default function MoneyPage() {
       dueDate: newDueDate || "",
       priority: newPriority,
       focus: newFocus,
+
+      // ✅ NEW
+      balance: newBalance ? clampMoney(newBalance) : undefined,
+      apr: newApr ? clampPercent(newApr) : undefined,
+      isMonthly,
+      monthlyTarget: isMonthly ? clampMoney(newMonthlyTarget || newTarget) : undefined,
+      dueDay: isMonthly ? clampDayOfMonth(newDueDay) : undefined,
     };
 
-    setBuckets((prev) => [bucket, ...prev]);
+    const nextBuckets = [bucket, ...buckets];
+
+    // If it’s monthly, snap dueDate to the correct next occurrence immediately
+    const finalBuckets = bucket.isMonthly ? applyMonthlyAutoAdd(now, nextBuckets) : nextBuckets;
+
+    setBuckets(finalBuckets);
 
     setNewName("");
     setNewTarget(0);
@@ -401,6 +556,13 @@ export default function MoneyPage() {
     setNewDueDate("");
     setNewPriority(2);
     setNewFocus(true);
+
+    // ✅ reset new fields
+    setNewBalance(0);
+    setNewApr(0);
+    setNewIsMonthly(false);
+    setNewMonthlyTarget(0);
+    setNewDueDay(1);
   }
 
   function resetAll() {
@@ -447,7 +609,6 @@ export default function MoneyPage() {
     const later = candidates.filter((x) => x.dueDate && x.dueDate > w4End);
     const unscheduled = candidates.filter((x) => !x.dueDate);
 
-    // next 7 days daily pacing
     const soon = candidates
       .filter((x) => x.dueDate && inRange(x.dueDate, now, dayHorizonEnd))
       .slice()
@@ -460,7 +621,6 @@ export default function MoneyPage() {
       return { ...x, daysLeft, perDay };
     });
 
-    // weeks array (used for the “what I need each week” strip)
     const weeks = [
       { label: `Week 1 (${w1Start} → ${w1End})`, start: w1Start, end: w1End, total: sum(week1) },
       { label: `Week 2 (${w2Start} → ${w2End})`, start: w2Start, end: w2End, total: sum(week2) },
@@ -502,7 +662,6 @@ export default function MoneyPage() {
     return { byDate, dates };
   }, [entries]);
 
-  // For “why is this week total what it is?”
   function listForWeek(startISO: string, endISO: string) {
     const rows = buckets
       .filter((b) => b.target > 0)
@@ -515,6 +674,7 @@ export default function MoneyPage() {
       .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
     return rows;
   }
+
   function BucketCard({ bucket }: { bucket: Bucket }) {
     const target = bucket.target;
     const saved = bucket.saved;
@@ -534,11 +694,22 @@ export default function MoneyPage() {
             {bucket.name}{" "}
             <span style={{ fontWeight: 800, opacity: 0.65 }}>
               · P{bucket.priority} · {dueLabel}
+              {bucket.isMonthly ? " · Monthly" : ""}
             </span>
+
+            {/* ✅ NEW badges */}
+            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {bucket.balance != null ? <Badge>Balance: {fmt(bucket.balance)}</Badge> : null}
+              {bucket.apr != null && bucket.apr > 0 ? <Badge>APR: {bucket.apr}%</Badge> : null}
+              {bucket.isMonthly ? (
+                <Badge>
+                  Monthly Target: {fmt(clampMoney(bucket.monthlyTarget ?? bucket.target))} · Due day: {bucket.dueDay ?? "—"}
+                </Badge>
+              ) : null}
+            </div>
           </div>
-          <div style={{ fontWeight: 950 }}>
-            {target > 0 ? `${fmt(saved)} / ${fmt(target)}` : fmt(saved)}
-          </div>
+
+          <div style={{ fontWeight: 950 }}>{target > 0 ? `${fmt(saved)} / ${fmt(target)}` : fmt(saved)}</div>
         </div>
 
         {target > 0 ? (
@@ -561,11 +732,10 @@ export default function MoneyPage() {
     );
   }
 
-  // "Why" list for Week 1 to show right under Week 1 card
   const week1Items = useMemo(() => listForWeek(plan.bounds.w1Start, plan.bounds.w1End), [buckets, plan.bounds.w1Start, plan.bounds.w1End]);
   const week2Items = useMemo(() => listForWeek(plan.bounds.w2Start, plan.bounds.w2End), [buckets, plan.bounds.w2Start, plan.bounds.w2End]);
 
-  return (
+  // ✅ PART 1 ends here.   return (
     <div style={styles.shell}>
       <header style={styles.header}>
         <div>
@@ -612,7 +782,6 @@ export default function MoneyPage() {
           </div>
           <div style={{ fontSize: 22, fontWeight: 950 }}>{fmt(plan.totals.week1)}</div>
 
-          {/* 👇 clearer “why” list under Week 1 */}
           <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
             {week1Items.length === 0 ? (
               <div style={{ opacity: 0.72, fontSize: 13 }}>No due dates set for this week.</div>
@@ -636,7 +805,6 @@ export default function MoneyPage() {
           </div>
           <div style={{ fontSize: 22, fontWeight: 950 }}>{fmt(plan.totals.week2)}</div>
 
-          {/* optional “why” list for Week 2 */}
           <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
             {week2Items.length === 0 ? (
               <div style={{ opacity: 0.72, fontSize: 13 }}>No due dates set for next week.</div>
@@ -678,9 +846,7 @@ export default function MoneyPage() {
             <div style={{ fontWeight: 950, fontSize: 16 }}>Suggested weekly income target</div>
             <div style={{ fontWeight: 950, fontSize: 20 }}>{fmt(plan.avg4)}</div>
           </div>
-          <div style={{ marginTop: 6, opacity: 0.78, fontSize: 13 }}>
-            Average of Weeks 1–4 (based on what’s still remaining).
-          </div>
+          <div style={{ marginTop: 6, opacity: 0.78, fontSize: 13 }}>Average of Weeks 1–4 (based on what’s still remaining).</div>
         </div>
       </div>
 
@@ -798,15 +964,19 @@ export default function MoneyPage() {
         </button>
       </div>
 
-      <Section title="Manage Buckets" subtitle="Add, edit, or delete buckets. Set Due Date to power the weekly/daily totals." />
+      <Section
+        title="Manage Buckets"
+        subtitle="Add/edit/delete buckets. NEW: monthly credit/loan buckets + balance/APR fields."
+      />
+
       <div style={styles.panel}>
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ fontWeight: 950 }}>Add a bucket</div>
 
-          <div style={styles.manageRow}>
+          <div style={styles.manageRowBig}>
             <label style={styles.label}>
               Name
-              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g., Groceries" style={styles.input} />
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g., Capital One" style={styles.input} />
             </label>
 
             <label style={styles.label}>
@@ -821,8 +991,30 @@ export default function MoneyPage() {
             </label>
 
             <label style={styles.label}>
+              Balance (optional)
+              <input
+                inputMode="decimal"
+                value={newBalance ? String(newBalance) : ""}
+                onChange={(e) => setNewBalance(Number(e.target.value))}
+                placeholder="0"
+                style={styles.input}
+              />
+            </label>
+
+            <label style={styles.label}>
+              APR % (optional)
+              <input
+                inputMode="decimal"
+                value={newApr ? String(newApr) : ""}
+                onChange={(e) => setNewApr(Number(e.target.value))}
+                placeholder="0"
+                style={styles.input}
+              />
+            </label>
+
+            <label style={styles.label}>
               Due note
-              <input value={newDue} onChange={(e) => setNewDue(e.target.value)} placeholder="ASAP / Feb 28" style={styles.input} />
+              <input value={newDue} onChange={(e) => setNewDue(e.target.value)} placeholder="ASAP / Min payment" style={styles.input} />
             </label>
 
             <label style={styles.label}>
@@ -844,6 +1036,40 @@ export default function MoneyPage() {
               <input type="checkbox" checked={newFocus} onChange={(e) => setNewFocus(e.target.checked)} />
             </label>
 
+            {/* ✅ NEW monthly toggles */}
+            <label style={{ ...styles.label, alignSelf: "end" }}>
+              <span>Monthly?</span>
+              <input
+                type="checkbox"
+                checked={newIsMonthly}
+                onChange={(e) => setNewIsMonthly(e.target.checked)}
+              />
+            </label>
+
+            <label style={styles.label}>
+              Monthly Target
+              <input
+                inputMode="decimal"
+                value={newMonthlyTarget ? String(newMonthlyTarget) : ""}
+                onChange={(e) => setNewMonthlyTarget(Number(e.target.value))}
+                placeholder={newIsMonthly ? "e.g., 35" : "—"}
+                style={styles.input}
+                disabled={!newIsMonthly}
+              />
+            </label>
+
+            <label style={styles.label}>
+              Due day (1–31)
+              <input
+                inputMode="numeric"
+                value={String(newDueDay)}
+                onChange={(e) => setNewDueDay(Number(e.target.value))}
+                placeholder="18"
+                style={styles.input}
+                disabled={!newIsMonthly}
+              />
+            </label>
+
             <button onClick={addBucket} style={btn()} disabled={!newName.trim()}>
               Add Bucket
             </button>
@@ -854,7 +1080,7 @@ export default function MoneyPage() {
           <div style={{ display: "grid", gap: 10 }}>
             {buckets.map((b) => (
               <div key={b.key} style={{ borderTop: "1px solid rgba(0,0,0,0.08)", paddingTop: 10 }}>
-                <div style={styles.editGrid}>
+                <div style={styles.editGridBig}>
                   <label style={styles.label}>
                     Name
                     <input value={b.name} onChange={(e) => updateBucket(b.key, { name: e.target.value })} style={styles.input} />
@@ -866,6 +1092,28 @@ export default function MoneyPage() {
                       inputMode="decimal"
                       value={b.target ? String(b.target) : ""}
                       onChange={(e) => updateBucket(b.key, { target: Number(e.target.value) })}
+                      style={styles.input}
+                    />
+                  </label>
+
+                  <label style={styles.label}>
+                    Balance
+                    <input
+                      inputMode="decimal"
+                      value={b.balance != null && b.balance !== 0 ? String(b.balance) : ""}
+                      onChange={(e) => updateBucket(b.key, { balance: Number(e.target.value) })}
+                      placeholder="0"
+                      style={styles.input}
+                    />
+                  </label>
+
+                  <label style={styles.label}>
+                    APR %
+                    <input
+                      inputMode="decimal"
+                      value={b.apr != null && b.apr !== 0 ? String(b.apr) : ""}
+                      onChange={(e) => updateBucket(b.key, { apr: Number(e.target.value) })}
+                      placeholder="0"
                       style={styles.input}
                     />
                   </label>
@@ -894,6 +1142,52 @@ export default function MoneyPage() {
                     <input type="checkbox" checked={!!b.focus} onChange={(e) => updateBucket(b.key, { focus: e.target.checked })} />
                   </label>
 
+                  {/* ✅ NEW monthly edit */}
+                  <label style={{ ...styles.label, alignSelf: "end" }}>
+                    <span>Monthly?</span>
+                    <input
+                      type="checkbox"
+                      checked={!!b.isMonthly}
+                      onChange={(e) => updateBucket(b.key, { isMonthly: e.target.checked })}
+                    />
+                  </label>
+
+                  <label style={styles.label}>
+                    Monthly Target
+                    <input
+                      inputMode="decimal"
+                      value={b.monthlyTarget != null && b.monthlyTarget !== 0 ? String(b.monthlyTarget) : ""}
+                      onChange={(e) => updateBucket(b.key, { monthlyTarget: Number(e.target.value) })}
+                      placeholder="0"
+                      style={styles.input}
+                      disabled={!b.isMonthly}
+                    />
+                  </label>
+
+                  <label style={styles.label}>
+                    Due day
+                    <input
+                      inputMode="numeric"
+                      value={String(b.dueDay ?? 1)}
+                      onChange={(e) => updateBucket(b.key, { dueDay: Number(e.target.value) })}
+                      placeholder="18"
+                      style={styles.input}
+                      disabled={!b.isMonthly}
+                    />
+                  </label>
+
+                  <button
+                    onClick={() => {
+                      // snap monthly settings immediately (optional helper)
+                      setBuckets((prev) => applyMonthlyAutoAdd(now, prev));
+                    }}
+                    style={btn()}
+                    disabled={!b.isMonthly}
+                    title="Re-apply monthly rules now"
+                  >
+                    Apply Monthly
+                  </button>
+
                   <button onClick={() => removeBucket(b.key)} style={btn("danger")}>
                     Delete
                   </button>
@@ -901,6 +1195,24 @@ export default function MoneyPage() {
 
                 <div style={{ marginTop: 6, opacity: 0.78, fontSize: 13 }}>
                   Key: <code>{b.key}</code> · Saved: <b>{fmt(b.saved)}</b> · Remaining: <b>{fmt(remaining(b))}</b>
+                  {b.balance != null ? (
+                    <>
+                      {" "}
+                      · Balance: <b>{fmt(b.balance)}</b>
+                    </>
+                  ) : null}
+                  {b.apr != null && b.apr > 0 ? (
+                    <>
+                      {" "}
+                      · APR: <b>{b.apr}%</b>
+                    </>
+                  ) : null}
+                  {b.isMonthly ? (
+                    <>
+                      {" "}
+                      · Monthly: <b>{fmt(clampMoney(b.monthlyTarget ?? b.target))}</b> · Due day: <b>{b.dueDay ?? "—"}</b>
+                    </>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -1050,18 +1362,21 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     alignItems: "end",
   },
-  manageRow: {
+
+  // ✅ widened grids to fit new fields
+  manageRowBig: {
     display: "grid",
-    gridTemplateColumns: "2fr 1fr 1.4fr 1.2fr 1fr auto auto",
+    gridTemplateColumns: "2fr 1fr 1fr 1fr 1.4fr 1.2fr 1fr auto auto 1fr 1fr auto",
     gap: 8,
     alignItems: "end",
   },
-  editGrid: {
+  editGridBig: {
     display: "grid",
-    gridTemplateColumns: "2fr 1fr 1.4fr 1.2fr 1fr auto auto",
+    gridTemplateColumns: "2fr 1fr 1fr 1fr 1.4fr 1.2fr 1fr auto auto 1fr 1fr auto auto",
     gap: 8,
     alignItems: "end",
   },
+
   label: { display: "grid", gap: 6, fontSize: 13, opacity: 0.96 },
   input: {
     width: "100%",
