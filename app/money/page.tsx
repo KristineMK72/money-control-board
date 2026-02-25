@@ -735,7 +735,8 @@ export default function MoneyPage() {
   const week1Items = useMemo(() => listForWeek(plan.bounds.w1Start, plan.bounds.w1End), [buckets, plan.bounds.w1Start, plan.bounds.w1End]);
   const week2Items = useMemo(() => listForWeek(plan.bounds.w2Start, plan.bounds.w2End), [buckets, plan.bounds.w2Start, plan.bounds.w2End]);
 
-  // ✅ PART 1 ends here.   return (
+  // ✅ PART 1 ends here.   
+   return (
     <div style={styles.shell}>
       <header style={styles.header}>
         <div>
