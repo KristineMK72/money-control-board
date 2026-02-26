@@ -220,13 +220,24 @@ export function Section({ title, subtitle }: { title: string; subtitle?: string 
    SUMMARY
 ============================= */
 
-function SummaryCard({ title, value, hint }: { title: string; value: string; hint?: string
- function SummaryCard({ title, value, hint }: { title: string; value: string; hint?: string }) {
+function SummaryCard({
+  title,
+  value,
+  hint,
+}: {
+  title: string;
+  value: string;
+  hint?: string;
+}) {
   return (
     <div style={styles.panel}>
-      <div style={{ opacity: 0.72, fontSize: 13, marginBottom: 6, fontWeight: 800 }}>{title}</div>
+      <div style={{ opacity: 0.72, fontSize: 13, marginBottom: 6, fontWeight: 800 }}>
+        {title}
+      </div>
       <div style={{ fontSize: 22, fontWeight: 950 }}>{value}</div>
-      {hint ? <div style={{ marginTop: 8, opacity: 0.72, fontSize: 13 }}>{hint}</div> : null}
+      {hint ? (
+        <div style={{ marginTop: 8, opacity: 0.72, fontSize: 13 }}>{hint}</div>
+      ) : null}
     </div>
   );
 }
