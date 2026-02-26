@@ -523,9 +523,56 @@ export default function MoneyPage() {
   }
 
   function allocateAmount(key: BucketKey, amount: number) {
-    const amt = clampMoney(amount);
-    if (amt <= 0) return;
-    if (totals.unassigned < amt) return;
+  const amt = clampMoney(amount);
+  if (amt <= 0) return;
+  if (totals.unassigned < amt) return;
+
+  const nextEntries = [...entries];
+  let remainingToAllocate = amt;
+
+  for (const e of nextEntries) {
+    const allocatedInEntry = Object.values(e.allocations || {}).reduce(
+      (x, v) => x + (v || 0),
+      0
+    );
+    const room = clampMoney(e.amount - allocatedInEntry);
+    if (room <= 0) continue;
+
+    const take = clampMoney(Math.min(room, remainingToAllocate));
+    e.allocations = { ...(e.allocations || {}) };
+    e.allocations[key] = clampMoney((e.allocations[key] || 0) + take);
+
+    remainingToAllocate = clampMoney(remainingToAllocate - take);
+    if (remainingToAllocate <= 0) break;
+  }
+
+  if (remainingToAllocate > 0) return;
+
+  setEntries(nextEntries);
+
+  // 🔥 NEW: Update saved + reduce balance
+  setBuckets((prev) =>
+    prev.map((b) => {
+      if (b.key !== key) return b;
+
+      const newSaved = clampMoney(b.saved + amt);
+
+      let newBalance = b.balance;
+
+      if (b.kind === "credit" || b.kind === "loan") {
+        if (b.balance != null) {
+          newBalance = clampMoney(Math.max(0, b.balance - amt));
+        }
+      }
+
+      return {
+        ...b,
+        saved: newSaved,
+        balance: newBalance,
+      };
+    })
+  );
+}
 
     const nextEntries = [...entries];
     let remainingToAllocate = amt;
