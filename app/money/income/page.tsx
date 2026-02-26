@@ -14,11 +14,19 @@ function todayISO() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+type MoneyStoreLike = ReturnType<typeof useMoneyStore> & {
+  // optional, depending on how your store.ts is wired
+  addIncome?: (p: { dateISO: string; source: Entry["source"]; amount: number; note?: string }) => void;
+  addIncomeEntry?: (p: { dateISO: string; source: Entry["source"]; amount: number; note?: string }) => void;
+  allocateAmount?: (key: BucketKey, amt: number) => void;
+  allocate?: (key: BucketKey, amt: number) => void;
+};
+
 export default function IncomePage() {
-  const store = useMoneyStore();
+  const store = useMoneyStore() as MoneyStoreLike;
   const totals = store.totals;
 
-  // --- Local UI state for the forms
+  // Local UI state for the forms
   const [entryDate, setEntryDate] = useState<string>(todayISO());
   const [entrySource, setEntrySource] = useState<Entry["source"]>("Salon");
   const [entryAmount, setEntryAmount] = useState<number>(0);
@@ -33,7 +41,7 @@ export default function IncomePage() {
   const [allocKey, setAllocKey] = useState<BucketKey>(firstBucketKey);
   const [allocAmt, setAllocAmt] = useState<number>(0);
 
-  // If buckets load/change, keep allocKey valid
+  // Keep allocKey valid if buckets load/change
   React.useEffect(() => {
     if (!buckets.find((b) => b.key === allocKey)) {
       setAllocKey(firstBucketKey);
@@ -41,32 +49,24 @@ export default function IncomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buckets.length, firstBucketKey]);
 
-  // --- Handlers that try common store method names safely
   const onAddIncome = () => {
     const amt = Number(entryAmount || 0);
     if (!amt || amt <= 0) return;
 
     const payload = {
-      date: entryDate,
+      dateISO: entryDate, // ✅ match your Entry type
       source: entrySource,
       amount: amt,
-      note: entryNote || "",
+      note: entryNote.trim() || undefined,
     };
 
-    const s: any = store as any;
-
-    // Try common method names (one of these likely exists)
-    if (typeof s.addIncome === "function") s.addIncome(payload);
-    else if (typeof s.addIncomeEntry === "function") s.addIncomeEntry(payload);
-    else if (typeof s.addEntry === "function") s.addEntry(payload);
-    else if (typeof s.logIncome === "function") s.logIncome(payload);
+    if (typeof store.addIncomeEntry === "function") store.addIncomeEntry(payload);
+    else if (typeof store.addIncome === "function") store.addIncome(payload);
     else {
-      // If none exist, do nothing (prevents crashes). We can adjust once you show store.ts.
-      console.warn("No income-add method found on store. Show lib/money/store.ts and I’ll wire it exactly.");
+      console.warn("No addIncome/addIncomeEntry found on store. Wire this in lib/money/store.ts.");
       return;
     }
 
-    // reset quick fields
     setEntryAmount(0);
     setEntryNote("");
   };
@@ -75,15 +75,10 @@ export default function IncomePage() {
     const amt = Number(allocAmt || 0);
     if (!amt || amt <= 0) return;
 
-    const s: any = store as any;
-
-    // Try common method names
-    if (typeof s.allocate === "function") s.allocate(allocKey, amt);
-    else if (typeof s.allocateToBucket === "function") s.allocateToBucket(allocKey, amt);
-    else if (typeof s.allocateUnassigned === "function") s.allocateUnassigned(allocKey, amt);
-    else if (typeof s.allocateAmount === "function") s.allocateAmount(allocKey, amt);
+    if (typeof store.allocateAmount === "function") store.allocateAmount(allocKey, amt);
+    else if (typeof store.allocate === "function") store.allocate(allocKey, amt);
     else {
-      console.warn("No allocate method found on store. Show lib/money/store.ts and I’ll wire it exactly.");
+      console.warn("No allocateAmount/allocate found on store. Wire this in lib/money/store.ts.");
       return;
     }
 
