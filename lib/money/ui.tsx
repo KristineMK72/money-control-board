@@ -18,7 +18,8 @@ export function btn(kind: "default" | "danger" = "default"): React.CSSProperties
     cursor: "pointer",
     fontWeight: 900,
   };
-  if (kind === "danger") return { ...base, border: "1px solid rgba(180,0,0,0.35)", color: "rgb(140,0,0)" };
+  if (kind === "danger")
+    return { ...base, border: "1px solid rgba(180,0,0,0.35)", color: "rgb(140,0,0)" };
   return base;
 }
 
@@ -109,11 +110,6 @@ export function SummaryRow({ children }: { children: React.ReactNode }) {
    BUCKETS
 ============================= */
 
-function remaining(bucket: Bucket) {
-  if ((bucket.target ?? 0) <= 0) return 0;
-  return clampMoney(Math.max(0, (bucket.target ?? 0) - (bucket.saved ?? 0)));
-}
-
 export function BucketCard({ bucket }: { bucket: Bucket }) {
   const target = bucket.target ?? 0;
   const saved = bucket.saved ?? 0;
@@ -130,7 +126,15 @@ export function BucketCard({ bucket }: { bucket: Bucket }) {
 
   return (
     <div style={styles.panel}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 10,
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
         <div style={{ fontWeight: 950 }}>
           {bucket.name}{" "}
           <span style={{ fontWeight: 800, opacity: 0.65 }}>
@@ -145,7 +149,8 @@ export function BucketCard({ bucket }: { bucket: Bucket }) {
             {bucket.apr != null && bucket.apr > 0 ? <Badge>APR: {bucket.apr}%</Badge> : null}
             {bucket.isMonthly ? (
               <Badge>
-                Monthly Target: {fmt(clampMoney(bucket.monthlyTarget ?? bucket.target))} · Due day: {bucket.dueDay ?? "—"}
+                Monthly Target: {fmt(clampMoney(bucket.monthlyTarget ?? bucket.target))} · Due day:{" "}
+                {bucket.dueDay ?? "—"}
               </Badge>
             ) : null}
           </div>
@@ -174,19 +179,13 @@ export function BucketCard({ bucket }: { bucket: Bucket }) {
   );
 }
 
-export function BucketGrid({ buckets }: { buckets: Bucket[] }) {
-  return (
-    <div style={styles.bucketGrid}>
-      {buckets.map((b) => (
-        <BucketCard key={b.key} bucket={b} />
-      ))}
-    </div>
-  );
+/** ✅ IMPORTANT: BucketGrid uses CHILDREN (matches your pages) */
+export function BucketGrid({ children }: { children: React.ReactNode }) {
+  return <div style={styles.bucketGrid}>{children}</div>;
 }
 
 /* =============================
-   FORMS (simple + compatible)
-   Pages can pass handlers from store hooks.
+   FORMS
 ============================= */
 
 export function IncomeForm(props: {
@@ -200,7 +199,17 @@ export function IncomeForm(props: {
   setEntryNote: (v: string) => void;
   onAdd: () => void;
 }) {
-  const { entryDate, setEntryDate, entrySource, setEntrySource, entryAmount, setEntryAmount, entryNote, setEntryNote, onAdd } = props;
+  const {
+    entryDate,
+    setEntryDate,
+    entrySource,
+    setEntrySource,
+    entryAmount,
+    setEntryAmount,
+    entryNote,
+    setEntryNote,
+    onAdd,
+  } = props;
 
   return (
     <>
@@ -213,6 +222,7 @@ export function IncomeForm(props: {
         </select>
         <input
           placeholder="Amount"
+          inputMode="decimal"
           value={entryAmount || ""}
           onChange={(e) => setEntryAmount(Number(e.target.value))}
           style={styles.input}
@@ -246,14 +256,20 @@ export function AllocateForm(props: {
 
   return (
     <div style={styles.allocRow}>
-      <select value={allocKey} onChange={(e) => setAllocKey(e.target.value)} style={styles.input}>
+      <select value={allocKey} onChange={(e) => setAllocKey(e.target.value as any)} style={styles.input}>
         {buckets.map((b) => (
           <option key={b.key} value={b.key}>
             {b.name}
           </option>
         ))}
       </select>
-      <input placeholder="Amount" value={allocAmt || ""} onChange={(e) => setAllocAmt(Number(e.target.value))} style={styles.input} />
+      <input
+        placeholder="Amount"
+        inputMode="decimal"
+        value={allocAmt || ""}
+        onChange={(e) => setAllocAmt(Number(e.target.value))}
+        style={styles.input}
+      />
       <button onClick={onAllocate} style={btn()}>
         Allocate
       </button>
@@ -262,7 +278,6 @@ export function AllocateForm(props: {
 }
 
 export function AddBucketForm(props: {
-  // fields
   newName: string;
   setNewName: (v: string) => void;
   newTarget: number;
@@ -302,8 +317,10 @@ export function AddBucketForm(props: {
     <div style={styles.panel}>
       <div style={{ display: "grid", gap: 8 }}>
         <input placeholder="Name" value={p.newName} onChange={(e) => p.setNewName(e.target.value)} style={styles.input} />
+
         <input
           placeholder="Target (amount)"
+          inputMode="decimal"
           value={p.newTarget || ""}
           onChange={(e) => p.setNewTarget(Number(e.target.value))}
           style={styles.input}
@@ -334,13 +351,37 @@ export function AddBucketForm(props: {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <input placeholder="Balance (optional)" value={p.newBalance || ""} onChange={(e) => p.setNewBalance(Number(e.target.value))} style={styles.input} />
-          <input placeholder="APR % (optional)" value={p.newApr || ""} onChange={(e) => p.setNewApr(Number(e.target.value))} style={styles.input} />
+          <input
+            placeholder="Balance (optional)"
+            inputMode="decimal"
+            value={p.newBalance || ""}
+            onChange={(e) => p.setNewBalance(Number(e.target.value))}
+            style={styles.input}
+          />
+          <input
+            placeholder="APR % (optional)"
+            inputMode="decimal"
+            value={p.newApr || ""}
+            onChange={(e) => p.setNewApr(Number(e.target.value))}
+            style={styles.input}
+          />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <input placeholder="Min payment (optional)" value={p.newMinPayment || ""} onChange={(e) => p.setNewMinPayment(Number(e.target.value))} style={styles.input} />
-          <input placeholder="Credit limit (optional)" value={p.newCreditLimit || ""} onChange={(e) => p.setNewCreditLimit(Number(e.target.value))} style={styles.input} />
+          <input
+            placeholder="Min payment (optional)"
+            inputMode="decimal"
+            value={p.newMinPayment || ""}
+            onChange={(e) => p.setNewMinPayment(Number(e.target.value))}
+            style={styles.input}
+          />
+          <input
+            placeholder="Credit limit (optional)"
+            inputMode="decimal"
+            value={p.newCreditLimit || ""}
+            onChange={(e) => p.setNewCreditLimit(Number(e.target.value))}
+            style={styles.input}
+          />
         </div>
 
         <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 800 }}>
@@ -352,12 +393,14 @@ export function AddBucketForm(props: {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <input
               placeholder="Monthly target"
+              inputMode="decimal"
               value={p.newMonthlyTarget || ""}
               onChange={(e) => p.setNewMonthlyTarget(Number(e.target.value))}
               style={styles.input}
             />
             <input
               placeholder="Due day (1-31)"
+              inputMode="numeric"
               value={p.newDueDay || ""}
               onChange={(e) => p.setNewDueDay(Number(e.target.value))}
               style={styles.input}
@@ -417,7 +460,7 @@ export function DailyNeedList(props: {
 }
 
 /* =============================
-   STYLES
+   STYLES (exported)
 ============================= */
 
 export const styles: Record<string, React.CSSProperties> = {
@@ -439,6 +482,20 @@ export const styles: Record<string, React.CSSProperties> = {
     borderRadius: 16,
     border: "1px solid rgba(0,0,0,0.10)",
   },
+
+  grid3: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 12,
+    marginTop: 12,
+  },
+  grid2: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: 12,
+    marginTop: 12,
+  },
+
   summaryGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(3, 1fr)",
