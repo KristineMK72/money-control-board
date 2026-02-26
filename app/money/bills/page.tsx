@@ -11,7 +11,7 @@ export default function BillsDebtPage() {
   const other = buckets.filter((b) => !b.focus);
 
   return (
-    <MoneyShell title="Bills / Debt" subtitle="Buckets + balances + allocate from Income page.">
+    <MoneyShell title="Bills / Debt" subtitle="Buckets + balances. (Allocate from Income page.)">
       <Section title="Focus Buckets" />
       <BucketGrid>
         {focus.map((b) => (
