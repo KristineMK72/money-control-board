@@ -1,79 +1,34 @@
-:root {
-  /* --- premium dark canvas --- */
-  --bg0: #0b1020;
-  --bg1: #0f1733;
+:root{
+  --bg0:#070A12;
+  --bg1:#0B1020;
 
-  /* text */
-  --ink: rgba(255, 255, 255, 0.92);
-  --muted: rgba(255, 255, 255, 0.70);
+  --ink: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.72);
 
-  /* glass cards */
-  --card: rgba(255, 255, 255, 0.08);
-  --card2: rgba(255, 255, 255, 0.06);
+  --card: rgba(255,255,255,0.08);
+  --card2: rgba(255,255,255,0.06);
 
-  /* borders */
-  --stroke: rgba(255, 255, 255, 0.16);
-  --stroke2: rgba(255, 255, 255, 0.12);
+  --stroke: rgba(255,255,255,0.14);
+  --stroke2: rgba(255,255,255,0.10);
 
-  /* shadows */
-  --shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
-  --shadow2: 0 10px 30px rgba(0, 0, 0, 0.35);
-
-  /* focus ring */
-  --ring: rgba(120, 170, 255, 0.55);
+  --shadow: 0 18px 55px rgba(0,0,0,0.45);
+  --shadow2: 0 10px 30px rgba(0,0,0,0.35);
 }
 
-* {
-  box-sizing: border-box;
-}
+*{ box-sizing: border-box; }
 
-html,
-body {
+html, body{
   height: 100%;
 }
 
-body {
+body{
   margin: 0;
   color: var(--ink);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+
   background:
     radial-gradient(900px 500px at 20% 10%, rgba(80,140,255,0.28), transparent 60%),
-    radial-gradient(900px 500px at 80% 20%, rgba(160,80,255,0.22), transparent 60%),
-    radial-gradient(700px 450px at 60% 90%, rgba(0,220,255,0.12), transparent 60%),
+    radial-gradient(900px 500px at 80% 20%, rgba(140,80,255,0.22), transparent 60%),
+    radial-gradient(700px 450px at 60% 85%, rgba(255,255,255,0.06), transparent 55%),
     linear-gradient(180deg, var(--bg0), var(--bg1));
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-}
-
-/* Make inputs feel premium */
-input,
-select,
-button {
-  font: inherit;
-}
-
-input,
-select {
-  color: var(--ink);
-}
-
-input::placeholder {
-  color: rgba(255, 255, 255, 0.55);
-}
-
-input:focus,
-select:focus,
-button:focus {
-  outline: none;
-}
-
-input:focus-visible,
-select:focus-visible,
-button:focus-visible,
-a:focus-visible {
-  box-shadow: 0 0 0 4px var(--ring);
-  border-color: rgba(120, 170, 255, 0.55);
-}
-
-/* links */
-a {
-  color: inherit;
 }
