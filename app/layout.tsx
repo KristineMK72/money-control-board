@@ -1,3 +1,4 @@
+import "./globals.css";
 export const metadata = {
   title: "Money Control Board",
   description: "Personal financial dashboard"
