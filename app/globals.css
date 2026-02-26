@@ -1,0 +1,38 @@
+:root{
+  --bg0:#070A12;
+  --bg1:#0B1224;
+  --card: rgba(255,255,255,.06);
+  --card2: rgba(255,255,255,.04);
+  --stroke: rgba(255,255,255,.12);
+  --stroke2: rgba(255,255,255,.08);
+  --ink: rgba(255,255,255,.92);
+  --muted: rgba(255,255,255,.72);
+
+  --radius-xl: 22px;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+
+  --shadow: 0 20px 60px rgba(0,0,0,.40);
+  --shadow2: 0 10px 30px rgba(0,0,0,.28);
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+
+body{
+  margin:0;
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  background:
+    radial-gradient(1100px 700px at 15% 10%, rgba(80,140,255,.20), transparent 60%),
+    radial-gradient(900px 600px at 85% 20%, rgba(160,90,255,.18), transparent 60%),
+    radial-gradient(900px 700px at 50% 95%, rgba(40,220,180,.08), transparent 65%),
+    linear-gradient(180deg, var(--bg0), var(--bg1));
+}
+
+/* nice defaults */
+a{ color:inherit; }
+button, input, select{ font: inherit; }
+
+/* subtle selection */
+::selection{ background: rgba(120,160,255,.25); }
