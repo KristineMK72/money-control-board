@@ -14,12 +14,8 @@ type Bucket = {
   due?: string;
   priority: 1 | 2 | 3;
   focus?: boolean;
-
-  // optional debt metadata (display only)
   balance?: number;
   apr?: number;
-
-  // optional monthly behavior (if you already added this)
   isMonthly?: boolean;
   monthlyTarget?: number;
   dueDay?: number;
@@ -100,14 +96,10 @@ function quarterKey(iso: string) {
 }
 
 /* =============================
-   UI helpers (dark glass)
+   UI
 ============================= */
 
-function cx(...parts: Array<string | false | null | undefined>) {
-  return parts.filter(Boolean).join(" ");
-}
-
-function Card({
+function StatCard({
   title,
   value,
   hint,
@@ -117,19 +109,25 @@ function Card({
   hint?: string;
 }) {
   return (
-    <div className={styles.card}>
-      <div className={styles.cardTitle}>{title}</div>
-      <div className={styles.cardValue}>{value}</div>
-      {hint ? <div className={styles.cardHint}>{hint}</div> : null}
+    <div className="rounded-2xl border border-white/15 bg-black/55 p-4 backdrop-blur-xl">
+      <div className="text-[11px] font-extrabold text-white/70">{title}</div>
+      <div className="mt-1 text-xl font-black text-white">{value}</div>
+      {hint ? <div className="mt-2 text-xs text-white/65">{hint}</div> : null}
     </div>
   );
 }
 
-function Mini({ label, value }: { label: string; value: string }) {
+function Mini({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
-    <div className={styles.mini}>
-      <div className={styles.miniLabel}>{label}</div>
-      <div className={styles.miniValue}>{value}</div>
+    <div className="rounded-xl border border-white/12 bg-black/40 p-3">
+      <div className="text-[11px] font-extrabold text-white/70">{label}</div>
+      <div className="mt-1 text-sm font-black text-white/90">{value}</div>
     </div>
   );
 }
@@ -145,16 +143,18 @@ export default function ForecastPage() {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
 
-  // “not strapped” baseline (set it here so this page is independent)
   const [weeklyBaseline, setWeeklyBaseline] = useState<number>(350);
 
   // Hustle assumptions
   const [spatialyticsPerJob, setSpatialyticsPerJob] = useState<number>(500);
   const [spatialyticsJobsPerWeek, setSpatialyticsJobsPerWeek] = useState<number>(1);
 
-  // Use PROFIT per sale (not revenue) for sanity
+  // Profit assumptions
   const [gritProfitPerSale, setGritProfitPerSale] = useState<number>(12);
   const [gritSalesPerWeek, setGritSalesPerWeek] = useState<number>(10);
+
+  // Mobile UX: collapse/expand weekly rows
+  const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     try {
@@ -217,7 +217,6 @@ export default function ForecastPage() {
         bills,
         income,
         baseline: weeklyBaseline,
-        carryIn: clampMoney(needTotal - bills - weeklyBaseline),
         needTotal,
         stillNeed,
       };
@@ -279,131 +278,143 @@ export default function ForecastPage() {
   ]);
 
   if (!loaded) {
-    return <div className={styles.loading}>Loading forecast…</div>;
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 pb-28 pt-6 text-white/80">
+        Loading forecast…
+      </div>
+    );
   }
 
   return (
-    <div className={styles.shell}>
-      <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <div className={styles.h1}>Forecast</div>
-          <div className={styles.sub}>
-            Carryover week-to-week + Month/Quarter totals + Hustle planner.
+    <div className="mx-auto w-full max-w-3xl px-4 pb-28 pt-4 text-white">
+      {/* Header */}
+      <div className="rounded-2xl border border-white/15 bg-black/55 p-4 backdrop-blur-xl">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-2xl font-black tracking-tight">Forecast</div>
+            <div className="mt-1 text-sm text-white/70">
+              Carryover week-to-week + month/quarter totals + hustle planner.
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href="/money"
+                className="inline-flex items-center rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white hover:bg-white/15 active:scale-[0.99] transition"
+              >
+                ← Back to Board
+              </Link>
+            </div>
           </div>
 
-          <div className={styles.headerLinks}>
-            <Link href="/money" className={styles.linkBtn}>
-              ← Back to Board
-            </Link>
+          <div className="w-full max-w-xs rounded-2xl border border-white/12 bg-black/40 p-4">
+            <div className="text-sm font-black text-white/90">Weekly baseline</div>
+            <div className="mt-1 text-xs text-white/70">Gas/food/basics (until we add real expenses)</div>
+            <input
+              inputMode="decimal"
+              value={String(weeklyBaseline)}
+              onChange={(e) => setWeeklyBaseline(Number(e.target.value))}
+              className="mt-3 w-full rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40"
+            />
           </div>
         </div>
+      </div>
 
-        <div className={styles.cardMini}>
-          <div className={styles.miniTop}>Weekly baseline</div>
-          <div className={styles.miniSub}>Gas/food/basics (until we add real expenses)</div>
-          <input
-            inputMode="decimal"
-            value={String(weeklyBaseline)}
-            onChange={(e) => setWeeklyBaseline(Number(e.target.value))}
-            className={styles.input}
-          />
-        </div>
-      </header>
-
-      <div className={styles.grid3}>
-        <Card
+      {/* Top stats */}
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard
           title={`Still Needed This Month (${forecast.thisMonth})`}
           value={fmt(forecast.monthTotalNeed)}
         />
-        <Card
+        <StatCard
           title={`Still Needed This Quarter (${forecast.thisQuarter})`}
           value={fmt(forecast.quarterTotalNeed)}
         />
-        <Card
+        <StatCard
           title="Week 1 Still Needed"
           value={fmt(forecast.hustle.week1Gap)}
           hint="Includes carryover logic."
         />
       </div>
 
-      <div className={styles.card}>
-        <div className={styles.sectionTitle}>Hustle Planner (covers the gap)</div>
+      {/* Hustle planner */}
+      <div className="mt-3 rounded-2xl border border-white/15 bg-black/55 p-4 backdrop-blur-xl">
+        <div className="text-lg font-black">Hustle Planner</div>
+        <div className="mt-1 text-sm text-white/70">Simple math to cover the Week 1 gap.</div>
 
-        <div className={styles.hustleGrid}>
-          <div className={styles.cardInner}>
-            <div className={styles.blockTitle}>Spatialytics</div>
+        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+          {/* Spatialytics */}
+          <div className="rounded-2xl border border-white/12 bg-black/40 p-4">
+            <div className="text-sm font-black text-white/90">Spatialytics</div>
 
-            <div className={styles.formRow}>
-              <span className={styles.label}>Avg $ per job</span>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-white/75">Avg $ per job</span>
               <input
                 inputMode="decimal"
                 value={String(spatialyticsPerJob)}
                 onChange={(e) => setSpatialyticsPerJob(Number(e.target.value))}
-                className={styles.inputSm}
+                className="w-[130px] rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-sm text-white outline-none text-right"
               />
             </div>
 
-            <div className={styles.formRow}>
-              <span className={styles.label}>Jobs / week</span>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-white/75">Jobs / week</span>
               <input
                 inputMode="decimal"
                 value={String(spatialyticsJobsPerWeek)}
                 onChange={(e) => setSpatialyticsJobsPerWeek(Number(e.target.value))}
-                className={styles.inputSm}
+                className="w-[130px] rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-sm text-white outline-none text-right"
               />
             </div>
 
-            <div className={styles.bigLine}>
+            <div className="mt-3 text-sm text-white/80">
               Weekly from Spatialytics:{" "}
-              <span className={styles.strong}>{fmt(forecast.hustle.spatialyticsWeekly)}</span>
+              <span className="font-black text-white/95">{fmt(forecast.hustle.spatialyticsWeekly)}</span>
             </div>
           </div>
 
-          <div className={styles.cardInner}>
-            <div className={styles.blockTitle}>Grit &amp; Grace</div>
+          {/* Grit & Grace */}
+          <div className="rounded-2xl border border-white/12 bg-black/40 p-4">
+            <div className="text-sm font-black text-white/90">Grit &amp; Grace</div>
 
-            <div className={styles.formRow}>
-              <span className={styles.label}>Profit per sale</span>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-white/75">Profit per sale</span>
               <input
                 inputMode="decimal"
                 value={String(gritProfitPerSale)}
                 onChange={(e) => setGritProfitPerSale(Number(e.target.value))}
-                className={styles.inputSm}
+                className="w-[130px] rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-sm text-white outline-none text-right"
               />
             </div>
 
-            <div className={styles.formRow}>
-              <span className={styles.label}>Sales / week</span>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-white/75">Sales / week</span>
               <input
                 inputMode="decimal"
                 value={String(gritSalesPerWeek)}
                 onChange={(e) => setGritSalesPerWeek(Number(e.target.value))}
-                className={styles.inputSm}
+                className="w-[130px] rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-sm text-white outline-none text-right"
               />
             </div>
 
-            <div className={styles.bigLine}>
+            <div className="mt-3 text-sm text-white/80">
               Weekly from Grit &amp; Grace:{" "}
-              <span className={styles.strong}>{fmt(forecast.hustle.gritWeekly)}</span>
+              <span className="font-black text-white/95">{fmt(forecast.hustle.gritWeekly)}</span>
             </div>
           </div>
 
-          <div className={styles.cardInner}>
-            <div className={styles.blockTitle}>Gap Coverage</div>
+          {/* Coverage */}
+          <div className="rounded-2xl border border-white/12 bg-black/40 p-4">
+            <div className="text-sm font-black text-white/90">Gap Coverage</div>
 
-            <div className={styles.labelMuted}>Combined hustle this week</div>
-            <div className={styles.bigNumber}>{fmt(forecast.hustle.hustleWeekly)}</div>
+            <div className="mt-3 text-xs font-semibold text-white/70">Combined hustle this week</div>
+            <div className="mt-2 text-2xl font-black">{fmt(forecast.hustle.hustleWeekly)}</div>
 
-            <div className={styles.labelMuted} style={{ marginTop: 10 }}>
-              Remaining after hustle (Week 1)
-            </div>
-            <div className={styles.bigNumberSm}>
-              {fmt(forecast.hustle.remainingAfterHustle)}
-            </div>
+            <div className="mt-3 text-xs font-semibold text-white/70">Remaining after hustle (Week 1)</div>
+            <div className="mt-2 text-xl font-black">{fmt(forecast.hustle.remainingAfterHustle)}</div>
 
-            <div className={styles.note}>
+            <div className="mt-3 text-xs text-white/70">
               If you wanted to cover the rest with only:
-              <ul className={styles.ul}>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
                 <li>Grit &amp; Grace: ~{forecast.hustle.moreGritSalesNeeded} more sales</li>
                 <li>Spatialytics: ~{forecast.hustle.moreSpatialyticsJobsNeeded} more jobs</li>
               </ul>
@@ -412,93 +423,49 @@ export default function ForecastPage() {
         </div>
       </div>
 
-      <div className={styles.sectionTitle} style={{ marginTop: 14 }}>
-        13-week carryover forecast
+      {/* Weekly forecast */}
+      <div className="mt-4 text-lg font-black">13-week carryover forecast</div>
+      <div className="mt-2 grid gap-3">
+        {forecast.rows.map((r) => {
+          const open = !!openWeeks[r.start];
+          return (
+            <div key={r.start} className="rounded-2xl border border-white/15 bg-black/55 p-4 backdrop-blur-xl">
+              <button
+                type="button"
+                onClick={() => setOpenWeeks((s) => ({ ...s, [r.start]: !s[r.start] }))}
+                className="flex w-full items-start justify-between gap-3 text-left"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-black text-white/90">{r.label}</div>
+                  <div className="mt-1 text-xs text-white/65">
+                    Bills {fmt(r.bills)} • Baseline {fmt(r.baseline)} • Income {fmt(r.income)}
+                  </div>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <div className="text-[11px] font-extrabold text-white/70">Still need</div>
+                  <div className="mt-1 text-base font-black">{fmt(r.stillNeed)}</div>
+                  <div className="mt-1 text-[11px] text-white/60">{open ? "Hide" : "Details"}</div>
+                </div>
+              </button>
+
+              {open ? (
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Mini label="Bills due (remaining)" value={fmt(r.bills)} />
+                  <Mini label="Baseline" value={fmt(r.baseline)} />
+                  <Mini label="Income logged" value={fmt(r.income)} />
+                  <Mini label="Total need (incl carryover)" value={fmt(r.needTotal)} />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
 
-      <div className={styles.list}>
-        {forecast.rows.map((r) => (
-          <div key={r.start} className={styles.card}>
-            <div className={styles.rowTop}>
-              <div className={styles.rowTitle}>{r.label}</div>
-              <div className={styles.rowTitle}>Still need: {fmt(r.stillNeed)}</div>
-            </div>
-
-            <div className={styles.grid4}>
-              <Mini label="Bills due (remaining)" value={fmt(r.bills)} />
-              <Mini label="Baseline" value={fmt(r.baseline)} />
-              <Mini label="Income logged" value={fmt(r.income)} />
-              <Mini label="Total need (incl carryover)" value={fmt(r.needTotal)} />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <footer className={styles.footer}>
+      <div className="mt-4 pb-8 text-xs text-white/60">
         Note: This uses your current bucket “remaining” (target - saved) and your logged income entries.
-        Next step is adding real “expenses” and/or recurring monthly schedules so the forecast becomes a true budget.
-      </footer>
+        Next step is adding real expenses and/or recurring monthly schedules so the forecast becomes a true budget.
+      </div>
     </div>
   );
 }
-
-/* =============================
-   STYLES (dark glass)
-============================= */
-
-const styles = {
-  shell: "mx-auto w-full max-w-3xl px-4 pb-28 pt-4",
-  loading: "mx-auto w-full max-w-3xl px-4 pb-28 pt-6 text-white/80",
-  header:
-    "rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)] flex flex-col gap-4 sm:flex-row sm:items-stretch sm:justify-between",
-  headerLeft: "min-w-0",
-  h1: "text-2xl font-black tracking-tight",
-  sub: "mt-1 text-sm text-white/70",
-  headerLinks: "mt-3 flex flex-wrap gap-2",
-  linkBtn:
-    "inline-flex items-center rounded-xl border border-white/12 bg-white/10 px-3 py-2 text-sm font-semibold text-white/90 hover:bg-white/14 active:scale-[0.99] transition",
-
-  grid3: "mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3",
-  grid4: "mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4",
-  list: "mt-3 grid gap-3",
-
-  card:
-    "rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)]",
-  cardMini:
-    "rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)]",
-  cardInner:
-    "rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-xl",
-
-  cardTitle: "text-xs font-extrabold text-white/70",
-  cardValue: "mt-1 text-xl font-black",
-  cardHint: "mt-2 text-xs text-white/65",
-
-  mini: "rounded-xl border border-white/10 bg-white/5 p-3",
-  miniLabel: "text-[11px] font-extrabold text-white/70",
-  miniValue: "mt-1 text-sm font-black text-white/90",
-
-  sectionTitle: "text-lg font-black",
-  blockTitle: "text-sm font-black text-white/90",
-  label: "text-xs font-semibold text-white/75",
-  labelMuted: "text-xs font-semibold text-white/70",
-  strong: "font-black text-white/95",
-
-  hustleGrid: "mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3",
-  formRow: "mt-2 flex items-center justify-between gap-3",
-  input:
-    "mt-3 w-full max-w-[220px] rounded-xl border border-white/12 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40",
-  inputSm:
-    "w-[120px] rounded-xl border border-white/12 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40 text-right",
-
-  bigLine: "mt-3 text-sm text-white/80",
-  bigNumber: "mt-2 text-2xl font-black",
-  bigNumberSm: "mt-2 text-xl font-black",
-
-  note: "mt-3 text-xs text-white/70",
-  ul: "mt-2 list-disc pl-5 space-y-1",
-
-  rowTop: "flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between",
-  rowTitle: "text-sm font-black text-white/90",
-
-  footer: "mt-4 pb-8 text-xs text-white/60",
-} as const;
