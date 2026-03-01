@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import BottomNav from "@/components/BottomNav";
+import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
   title: "Money Control Board",
@@ -15,12 +16,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {/* Main app container */}
-        <div className="min-h-screen pb-28">
-          {children}
-        </div>
+        <AppShell>
+          {/* Prevent content from hiding behind footer */}
+          <div className="pb-20">{children}</div>
+        </AppShell>
 
-        {/* Persistent footer nav */}
+        {/* Persistent footer navigation */}
         <BottomNav />
       </body>
     </html>
