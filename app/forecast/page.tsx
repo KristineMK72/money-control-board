@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 /** =============================
- *  Types (match your storage)
+ *  Types
 ============================= */
 type BucketKey = string;
 
@@ -72,7 +72,6 @@ function addDaysISO(iso: string, days: number) {
 }
 
 function startOfWeekISO(iso: string) {
-  // Monday start
   const d = new Date(iso + "T00:00:00");
   const day = d.getDay(); // 0 Sun..6 Sat
   const mondayOffset = (day + 6) % 7;
@@ -100,29 +99,39 @@ function quarterKey(iso: string) {
 }
 
 /** =============================
- *  Small UI bits
+ *  UI Components (inline styles)
 ============================= */
-function StatCard({
-  label,
+function Card({
+  title,
   value,
-  sub,
+  subtitle,
+  children,
 }: {
-  label: string;
-  value: string;
-  sub?: string;
+  title: string;
+  value?: string;
+  subtitle?: string;
+  children?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-white/12 bg-white/8 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)]">
-      <div className="text-xs font-extrabold tracking-wide text-white/70">
-        {label}
-      </div>
-      <div className="mt-2 text-2xl font-black text-white">{value}</div>
-      {sub ? <div className="mt-2 text-xs text-white/65">{sub}</div> : null}
+    <div style={ui.card}>
+      <div style={ui.cardTitle}>{title}</div>
+      {value ? <div style={ui.cardValue}>{value}</div> : null}
+      {subtitle ? <div style={ui.cardSub}>{subtitle}</div> : null}
+      {children ? <div style={{ marginTop: 10 }}>{children}</div> : null}
     </div>
   );
 }
 
-function Field({
+function SmallStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={ui.stat}>
+      <div style={ui.statLabel}>{label}</div>
+      <div style={ui.statValue}>{value}</div>
+    </div>
+  );
+}
+
+function NumField({
   label,
   value,
   onChange,
@@ -132,15 +141,15 @@ function Field({
   onChange: (n: number) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2">
-      <span className="text-xs font-semibold text-white/75">{label}</span>
+    <div style={ui.fieldRow}>
+      <div style={ui.fieldLabel}>{label}</div>
       <input
         inputMode="decimal"
         value={String(value)}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-[120px] rounded-lg border border-white/12 bg-black/40 px-2 py-1 text-right text-sm font-bold text-white outline-none"
+        style={ui.input}
       />
-    </label>
+    </div>
   );
 }
 
@@ -154,10 +163,8 @@ export default function ForecastPage() {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
 
-  // baseline
   const [weeklyBaseline, setWeeklyBaseline] = useState<number>(350);
 
-  // Hustle assumptions
   const [spatialyticsPerJob, setSpatialyticsPerJob] = useState<number>(500);
   const [spatialyticsJobsPerWeek, setSpatialyticsJobsPerWeek] = useState<number>(1);
 
@@ -283,166 +290,335 @@ export default function ForecastPage() {
   ]);
 
   if (!loaded) {
-    return (
-      <div className="mx-auto w-full max-w-3xl px-4 pb-32 pt-6 text-white/80">
-        Loading forecast…
-      </div>
-    );
+    return <div style={ui.loading}>Loading forecast…</div>;
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-32 pt-5 text-white">
+    <div style={ui.shell}>
       {/* Header */}
-      <div className="rounded-2xl border border-white/12 bg-white/8 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)]">
-        <div className="text-2xl font-black tracking-tight">Forecast</div>
-        <div className="mt-1 text-sm text-white/70">
+      <div style={ui.headerCard}>
+        <div style={ui.h1}>Forecast</div>
+        <div style={ui.sub}>
           Week-to-week carryover + monthly/quarter totals + hustle planner.
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Link
-            href="/money"
-            className="inline-flex items-center rounded-xl border border-white/12 bg-white/10 px-3 py-2 text-sm font-semibold text-white/90 hover:bg-white/14"
-          >
+        <div style={ui.headerRow}>
+          <Link href="/money" style={ui.linkBtn}>
             ← Back to Board
           </Link>
 
-          <div className="ml-auto w-full sm:w-auto">
-            <div className="text-xs font-extrabold text-white/70">Weekly baseline</div>
-            <div className="mt-1 text-xs text-white/60">Gas / food / basics</div>
+          <div style={{ flex: 1 }} />
+
+          <div style={ui.baselineBox}>
+            <div style={ui.baselineTitle}>Weekly baseline</div>
+            <div style={ui.baselineSub}>Gas / food / basics</div>
             <input
               inputMode="decimal"
               value={String(weeklyBaseline)}
               onChange={(e) => setWeeklyBaseline(Number(e.target.value))}
-              className="mt-2 w-full sm:w-[220px] rounded-xl border border-white/12 bg-black/35 px-3 py-2 text-sm font-bold text-white outline-none"
+              style={ui.inputWide}
             />
           </div>
         </div>
       </div>
 
       {/* Top stats */}
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard
-          label={`Still needed this month (${forecast.thisMonth})`}
-          value={fmt(forecast.monthTotalNeed)}
-        />
-        <StatCard
-          label={`Still needed this quarter (${forecast.thisQuarter})`}
-          value={fmt(forecast.quarterTotalNeed)}
-        />
-        <StatCard
-          label="Week 1 still needed"
-          value={fmt(forecast.hustle.week1Gap)}
-          sub="This already includes carryover logic."
-        />
+      <div style={ui.statsGrid}>
+        <SmallStat label={`Still needed this month (${forecast.thisMonth})`} value={fmt(forecast.monthTotalNeed)} />
+        <SmallStat label={`Still needed this quarter (${forecast.thisQuarter})`} value={fmt(forecast.quarterTotalNeed)} />
+        <SmallStat label="Week 1 still needed" value={fmt(forecast.hustle.week1Gap)} />
       </div>
 
       {/* Hustle planner */}
-      <div className="mt-3 rounded-2xl border border-white/12 bg-white/8 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)]">
-        <div className="text-lg font-black">Hustle planner</div>
-        <div className="mt-1 text-sm text-white/70">
-          Quick “what would cover this week?” math.
-        </div>
-
-        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="text-sm font-black text-white/90">Spatialytics</div>
-            <div className="mt-3 grid gap-2">
-              <Field label="Avg $ per job" value={spatialyticsPerJob} onChange={setSpatialyticsPerJob} />
-              <Field label="Jobs per week" value={spatialyticsJobsPerWeek} onChange={setSpatialyticsJobsPerWeek} />
-            </div>
-            <div className="mt-3 text-sm text-white/75">
-              Weekly from Spatialytics:{" "}
-              <span className="font-black text-white">{fmt(forecast.hustle.spatialyticsWeekly)}</span>
+      <Card
+        title="Hustle planner"
+        subtitle="Quick “what would cover this week?” math."
+      >
+        <div style={ui.hustleWrap}>
+          <div style={ui.hustleCol}>
+            <div style={ui.blockTitle}>Spatialytics</div>
+            <NumField label="Avg $ per job" value={spatialyticsPerJob} onChange={setSpatialyticsPerJob} />
+            <NumField label="Jobs per week" value={spatialyticsJobsPerWeek} onChange={setSpatialyticsJobsPerWeek} />
+            <div style={ui.line}>
+              Weekly from Spatialytics: <b>{fmt(forecast.hustle.spatialyticsWeekly)}</b>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="text-sm font-black text-white/90">Grit &amp; Grace</div>
-            <div className="mt-3 grid gap-2">
-              <Field label="Profit per sale" value={gritProfitPerSale} onChange={setGritProfitPerSale} />
-              <Field label="Sales per week" value={gritSalesPerWeek} onChange={setGritSalesPerWeek} />
-            </div>
-            <div className="mt-3 text-sm text-white/75">
-              Weekly from G&amp;G:{" "}
-              <span className="font-black text-white">{fmt(forecast.hustle.gritWeekly)}</span>
+          <div style={ui.hustleCol}>
+            <div style={ui.blockTitle}>Grit &amp; Grace</div>
+            <NumField label="Profit per sale" value={gritProfitPerSale} onChange={setGritProfitPerSale} />
+            <NumField label="Sales per week" value={gritSalesPerWeek} onChange={setGritSalesPerWeek} />
+            <div style={ui.line}>
+              Weekly from G&amp;G: <b>{fmt(forecast.hustle.gritWeekly)}</b>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="text-sm font-black text-white/90">Gap coverage</div>
+          <div style={ui.hustleCol}>
+            <div style={ui.blockTitle}>Gap coverage</div>
+            <div style={ui.kicker}>Combined hustle this week</div>
+            <div style={ui.big}>{fmt(forecast.hustle.hustleWeekly)}</div>
 
-            <div className="mt-3 text-xs font-semibold text-white/70">Combined hustle this week</div>
-            <div className="mt-1 text-2xl font-black">{fmt(forecast.hustle.hustleWeekly)}</div>
+            <div style={{ ...ui.kicker, marginTop: 10 }}>Remaining after hustle (Week 1)</div>
+            <div style={ui.bigSm}>{fmt(forecast.hustle.remainingAfterHustle)}</div>
 
-            <div className="mt-3 text-xs font-semibold text-white/70">Remaining after hustle (Week 1)</div>
-            <div className="mt-1 text-xl font-black">{fmt(forecast.hustle.remainingAfterHustle)}</div>
-
-            <div className="mt-3 text-xs text-white/70">
+            <div style={ui.note}>
               If you wanted to cover the rest with only:
-              <ul className="mt-2 list-disc space-y-1 pl-5">
+              <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 18 }}>
                 <li>G&amp;G: ~{forecast.hustle.moreGritSalesNeeded} more sales</li>
                 <li>Spatialytics: ~{forecast.hustle.moreSpatialyticsJobsNeeded} more jobs</li>
               </ul>
             </div>
           </div>
         </div>
-      </div>
+      </Card>
 
-      {/* Week list */}
-      <div className="mt-4 text-lg font-black">13-week carryover</div>
-      <div className="mt-2 grid gap-3">
+      {/* Weeks */}
+      <div style={ui.sectionTitle}>13-week carryover</div>
+
+      <div style={{ display: "grid", gap: 12 }}>
         {forecast.rows.map((r) => (
-          <details
-            key={r.start}
-            className="group rounded-2xl border border-white/12 bg-white/8 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)]"
-          >
-            <summary className="cursor-pointer list-none">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm font-black text-white/90">
-                  {r.label} <span className="font-semibold text-white/60">({r.range})</span>
+          <details key={r.start} style={ui.details}>
+            <summary style={ui.summary}>
+              <div style={ui.weekTop}>
+                <div style={ui.weekTitle}>
+                  {r.label} <span style={ui.weekRange}>({r.range})</span>
                 </div>
-                <div className="text-sm font-black">
-                  Still need: <span className="text-white">{fmt(r.stillNeed)}</span>
+                <div style={ui.weekNeed}>Still need: {fmt(r.stillNeed)}</div>
+              </div>
+
+              <div style={ui.weekMiniGrid}>
+                <div style={ui.miniBox}>
+                  <div style={ui.miniLabel}>Bills due</div>
+                  <div style={ui.miniVal}>{fmt(r.bills)}</div>
+                </div>
+                <div style={ui.miniBox}>
+                  <div style={ui.miniLabel}>Baseline</div>
+                  <div style={ui.miniVal}>{fmt(r.baseline)}</div>
+                </div>
+                <div style={ui.miniBox}>
+                  <div style={ui.miniLabel}>Income logged</div>
+                  <div style={ui.miniVal}>{fmt(r.income)}</div>
                 </div>
               </div>
 
-              <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-white/70 sm:grid-cols-3">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-                  <div className="font-extrabold">Bills due</div>
-                  <div className="mt-1 text-sm font-black text-white">{fmt(r.bills)}</div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-                  <div className="font-extrabold">Baseline</div>
-                  <div className="mt-1 text-sm font-black text-white">{fmt(r.baseline)}</div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-                  <div className="font-extrabold">Income logged</div>
-                  <div className="mt-1 text-sm font-black text-white">{fmt(r.income)}</div>
-                </div>
-              </div>
-
-              <div className="mt-2 text-xs text-white/55">
-                Tap to expand details
-                <span className="ml-2 inline-block transition group-open:rotate-180">▾</span>
-              </div>
+              <div style={ui.tapHint}>Tap for total need details ▾</div>
             </summary>
 
-            <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3">
-              <div className="text-xs font-extrabold text-white/70">Total need this week (incl carryover)</div>
-              <div className="mt-1 text-xl font-black text-white">{fmt(r.needTotal)}</div>
-              <div className="mt-2 text-xs text-white/60">
-                This is: bills due + baseline + whatever was still needed from last week.
+            <div style={ui.detailBody}>
+              <div style={ui.miniLabel}>Total need this week (incl carryover)</div>
+              <div style={{ ...ui.bigSm, marginTop: 6 }}>{fmt(r.needTotal)}</div>
+              <div style={{ ...ui.note, marginTop: 10 }}>
+                Total need = bills due + baseline + whatever was still needed from last week.
               </div>
             </div>
           </details>
         ))}
       </div>
 
-      <div className="mt-4 pb-8 text-xs text-white/60">
-        Uses your current bucket “remaining” (target - saved) and logged income entries. Next step is
-        adding real expenses and/or recurring monthly schedules.
+      <div style={ui.footer}>
+        Uses your bucket “remaining” (target - saved) and logged income entries. Next step is adding real expenses and/or recurring schedules.
       </div>
     </div>
   );
 }
+
+/** =============================
+ *  Styles (readable, mobile-first)
+============================= */
+const ui: Record<string, React.CSSProperties> = {
+  shell: {
+    maxWidth: 780,
+    margin: "0 auto",
+    padding: 16,
+    paddingBottom: 130, // IMPORTANT: keeps content above BottomNav
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
+    color: "white",
+  },
+  loading: {
+    maxWidth: 780,
+    margin: "0 auto",
+    padding: 16,
+    paddingBottom: 130,
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
+    color: "rgba(255,255,255,0.8)",
+  },
+
+  headerCard: {
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(0,0,0,0.35)",
+    backdropFilter: "blur(10px)",
+    padding: 14,
+    boxShadow: "0 10px 40px rgba(0,0,0,0.25)",
+  },
+  h1: { fontSize: 26, fontWeight: 950, letterSpacing: -0.2 },
+  sub: { marginTop: 6, fontSize: 14, color: "rgba(255,255,255,0.75)" },
+
+  headerRow: {
+    marginTop: 12,
+    display: "flex",
+    gap: 12,
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+  },
+  linkBtn: {
+    display: "inline-block",
+    textDecoration: "none",
+    color: "white",
+    fontWeight: 850,
+    padding: "10px 12px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background: "rgba(255,255,255,0.10)",
+  },
+
+  baselineBox: {
+    minWidth: 260,
+    maxWidth: "100%",
+    padding: 12,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.08)",
+  },
+  baselineTitle: { fontSize: 12, fontWeight: 900, color: "rgba(255,255,255,0.8)" },
+  baselineSub: { marginTop: 4, fontSize: 12, color: "rgba(255,255,255,0.65)" },
+  inputWide: {
+    marginTop: 8,
+    width: "100%",
+    padding: "10px 10px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background: "rgba(0,0,0,0.45)",
+    color: "white",
+    fontWeight: 800,
+    outline: "none",
+  },
+
+  statsGrid: {
+    marginTop: 12,
+    display: "grid",
+    gap: 12,
+    gridTemplateColumns: "1fr",
+  },
+
+  stat: {
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(0,0,0,0.35)",
+    backdropFilter: "blur(10px)",
+    padding: 14,
+  },
+  statLabel: { fontSize: 12, fontWeight: 900, color: "rgba(255,255,255,0.75)" },
+  statValue: { marginTop: 8, fontSize: 24, fontWeight: 950 },
+
+  card: {
+    marginTop: 12,
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(0,0,0,0.35)",
+    backdropFilter: "blur(10px)",
+    padding: 14,
+    boxShadow: "0 10px 40px rgba(0,0,0,0.22)",
+  },
+  cardTitle: { fontSize: 14, fontWeight: 950 },
+  cardValue: { marginTop: 8, fontSize: 26, fontWeight: 950 },
+  cardSub: { marginTop: 6, fontSize: 13, color: "rgba(255,255,255,0.7)" },
+
+  hustleWrap: {
+    display: "grid",
+    gridTemplateColumns: "1fr",
+    gap: 12,
+  },
+  hustleCol: {
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.06)",
+    padding: 12,
+  },
+  blockTitle: { fontSize: 13, fontWeight: 950, color: "rgba(255,255,255,0.9)" },
+
+  fieldRow: {
+    marginTop: 10,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+  },
+  fieldLabel: { fontSize: 12, fontWeight: 800, color: "rgba(255,255,255,0.75)" },
+  input: {
+    width: 140,
+    maxWidth: "45vw",
+    padding: "10px 10px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background: "rgba(0,0,0,0.45)",
+    color: "white",
+    fontWeight: 900,
+    outline: "none",
+    textAlign: "right",
+  },
+
+  line: { marginTop: 12, fontSize: 13, color: "rgba(255,255,255,0.8)" },
+  kicker: { fontSize: 12, fontWeight: 900, color: "rgba(255,255,255,0.7)" },
+  big: { marginTop: 6, fontSize: 28, fontWeight: 950 },
+  bigSm: { fontSize: 22, fontWeight: 950 },
+  note: { fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.35 },
+
+  sectionTitle: { marginTop: 16, fontSize: 18, fontWeight: 950 },
+
+  details: {
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(0,0,0,0.35)",
+    backdropFilter: "blur(10px)",
+    padding: 12,
+  },
+  summary: {
+    listStyle: "none",
+    cursor: "pointer",
+    outline: "none",
+  },
+  weekTop: {
+    display: "flex",
+    gap: 8,
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+  },
+  weekTitle: { fontSize: 14, fontWeight: 950 },
+  weekRange: { fontSize: 12, fontWeight: 800, color: "rgba(255,255,255,0.65)" },
+  weekNeed: { fontSize: 14, fontWeight: 950 },
+
+  weekMiniGrid: {
+    marginTop: 10,
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 10,
+  },
+  miniBox: {
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.06)",
+    padding: 10,
+  },
+  miniLabel: { fontSize: 11, fontWeight: 950, color: "rgba(255,255,255,0.7)" },
+  miniVal: { marginTop: 6, fontSize: 13, fontWeight: 950 },
+
+  tapHint: { marginTop: 10, fontSize: 12, color: "rgba(255,255,255,0.55)" },
+
+  detailBody: {
+    marginTop: 12,
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(0,0,0,0.35)",
+    padding: 12,
+  },
+
+  footer: {
+    marginTop: 16,
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    lineHeight: 1.35,
+    paddingBottom: 20,
+  },
+};
