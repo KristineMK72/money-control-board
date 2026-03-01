@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 type BucketKey = string;
 
@@ -99,6 +100,41 @@ function quarterKey(iso: string) {
 }
 
 /* =============================
+   UI helpers (dark glass)
+============================= */
+
+function cx(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
+
+function Card({
+  title,
+  value,
+  hint,
+}: {
+  title: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardTitle}>{title}</div>
+      <div className={styles.cardValue}>{value}</div>
+      {hint ? <div className={styles.cardHint}>{hint}</div> : null}
+    </div>
+  );
+}
+
+function Mini({ label, value }: { label: string; value: string }) {
+  return (
+    <div className={styles.mini}>
+      <div className={styles.miniLabel}>{label}</div>
+      <div className={styles.miniValue}>{value}</div>
+    </div>
+  );
+}
+
+/* =============================
    PAGE
 ============================= */
 
@@ -145,13 +181,11 @@ export default function ForecastPage() {
       return { i, start, end, label: `Week ${i + 1} (${start} → ${end})` };
     });
 
-    // Remaining due amounts (based on current bucket remaining: target - saved)
     const remainingForBucket = (b: Bucket) => {
       if ((b.target || 0) <= 0) return 0;
       return clampMoney(Math.max(0, (b.target || 0) - (b.saved || 0)));
     };
 
-    // Income logged per week (based on entries)
     const incomeInWeek = (start: string, end: string) =>
       clampMoney(
         entries
@@ -159,7 +193,6 @@ export default function ForecastPage() {
           .reduce((s, e) => s + (e.amount || 0), 0)
       );
 
-    // Bills due per week (based on buckets’ dueDate that fall in that week)
     const billsDueInWeek = (start: string, end: string) =>
       clampMoney(
         buckets
@@ -168,9 +201,6 @@ export default function ForecastPage() {
           .reduce((s, b) => s + remainingForBucket(b), 0)
       );
 
-    // Build carryover logic week-to-week:
-    // need = baseline + bills + carryoverPrev
-    // stillNeed = max(0, need - incomeThisWeek)
     let carry = 0;
 
     const rows = weeks.map((w) => {
@@ -180,7 +210,6 @@ export default function ForecastPage() {
       const needTotal = clampMoney(bills + weeklyBaseline + carry);
       const stillNeed = clampMoney(Math.max(0, needTotal - income));
 
-      // update carry for next week
       carry = stillNeed;
 
       return {
@@ -209,12 +238,10 @@ export default function ForecastPage() {
         .reduce((s, r) => s + r.stillNeed, 0)
     );
 
-    // Hustle math (weekly)
     const spatialyticsWeekly = clampMoney(spatialyticsPerJob * spatialyticsJobsPerWeek);
     const gritWeekly = clampMoney(gritProfitPerSale * gritSalesPerWeek);
     const hustleWeekly = clampMoney(spatialyticsWeekly + gritWeekly);
 
-    // How many more jobs/sales needed to cover Week 1 gap (simple)
     const week1Gap = rows[0]?.stillNeed || 0;
     const remainingAfterHustle = clampMoney(Math.max(0, week1Gap - hustleWeekly));
 
@@ -251,109 +278,133 @@ export default function ForecastPage() {
     gritSalesPerWeek,
   ]);
 
-  if (!loaded) return <div style={styles.shell}>Loading forecast…</div>;
+  if (!loaded) {
+    return <div className={styles.loading}>Loading forecast…</div>;
+  }
 
   return (
-    <div style={styles.shell}>
-      <header style={styles.header}>
-        <div>
-          <div style={{ fontSize: 26, fontWeight: 950, marginBottom: 6 }}>Forecast</div>
-          <div style={{ opacity: 0.8 }}>
+    <div className={styles.shell}>
+      <header className={styles.header}>
+        <div className={styles.headerLeft}>
+          <div className={styles.h1}>Forecast</div>
+          <div className={styles.sub}>
             Carryover week-to-week + Month/Quarter totals + Hustle planner.
           </div>
-          <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href="/money" style={btnLink()}>
-              ← Back to /money
-            </a>
+
+          <div className={styles.headerLinks}>
+            <Link href="/money" className={styles.linkBtn}>
+              ← Back to Board
+            </Link>
           </div>
         </div>
 
-        <div style={styles.panelMini}>
-          <div style={{ fontWeight: 950 }}>Weekly baseline</div>
-          <div style={{ opacity: 0.8, fontSize: 13, marginTop: 4 }}>
-            Gas/food/basics (until we build real expenses)
-          </div>
+        <div className={styles.cardMini}>
+          <div className={styles.miniTop}>Weekly baseline</div>
+          <div className={styles.miniSub}>Gas/food/basics (until we add real expenses)</div>
           <input
             inputMode="decimal"
             value={String(weeklyBaseline)}
             onChange={(e) => setWeeklyBaseline(Number(e.target.value))}
-            style={{ ...styles.input, marginTop: 10, width: 160 }}
+            className={styles.input}
           />
         </div>
       </header>
 
-      <div style={styles.grid3}>
-        <Card title={`Still Needed This Month (${forecast.thisMonth})`} value={fmt(forecast.monthTotalNeed)} />
-        <Card title={`Still Needed This Quarter (${forecast.thisQuarter})`} value={fmt(forecast.quarterTotalNeed)} />
-        <Card title="Week 1 Still Needed" value={fmt(forecast.hustle.week1Gap)} hint="This already includes carryover logic." />
+      <div className={styles.grid3}>
+        <Card
+          title={`Still Needed This Month (${forecast.thisMonth})`}
+          value={fmt(forecast.monthTotalNeed)}
+        />
+        <Card
+          title={`Still Needed This Quarter (${forecast.thisQuarter})`}
+          value={fmt(forecast.quarterTotalNeed)}
+        />
+        <Card
+          title="Week 1 Still Needed"
+          value={fmt(forecast.hustle.week1Gap)}
+          hint="Includes carryover logic."
+        />
       </div>
 
-      <div style={styles.panel}>
-        <div style={{ fontSize: 18, fontWeight: 950, marginBottom: 10 }}>Hustle Planner (covers the gap)</div>
+      <div className={styles.card}>
+        <div className={styles.sectionTitle}>Hustle Planner (covers the gap)</div>
 
-        <div style={styles.hustleGrid}>
-          <div>
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>Spatialytics</div>
-            <div style={styles.row}>
-              <span>Avg $ per job</span>
+        <div className={styles.hustleGrid}>
+          <div className={styles.cardInner}>
+            <div className={styles.blockTitle}>Spatialytics</div>
+
+            <div className={styles.formRow}>
+              <span className={styles.label}>Avg $ per job</span>
               <input
                 inputMode="decimal"
                 value={String(spatialyticsPerJob)}
                 onChange={(e) => setSpatialyticsPerJob(Number(e.target.value))}
-                style={styles.input}
+                className={styles.inputSm}
               />
             </div>
-            <div style={styles.row}>
-              <span>Jobs / week</span>
+
+            <div className={styles.formRow}>
+              <span className={styles.label}>Jobs / week</span>
               <input
                 inputMode="decimal"
                 value={String(spatialyticsJobsPerWeek)}
                 onChange={(e) => setSpatialyticsJobsPerWeek(Number(e.target.value))}
-                style={styles.input}
+                className={styles.inputSm}
               />
             </div>
-            <div style={{ marginTop: 10, fontWeight: 950 }}>
-              Weekly from Spatialytics: {fmt(forecast.hustle.spatialyticsWeekly)}
+
+            <div className={styles.bigLine}>
+              Weekly from Spatialytics:{" "}
+              <span className={styles.strong}>{fmt(forecast.hustle.spatialyticsWeekly)}</span>
             </div>
           </div>
 
-          <div>
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>Grit & Grace</div>
-            <div style={styles.row}>
-              <span>Profit per sale</span>
+          <div className={styles.cardInner}>
+            <div className={styles.blockTitle}>Grit &amp; Grace</div>
+
+            <div className={styles.formRow}>
+              <span className={styles.label}>Profit per sale</span>
               <input
                 inputMode="decimal"
                 value={String(gritProfitPerSale)}
                 onChange={(e) => setGritProfitPerSale(Number(e.target.value))}
-                style={styles.input}
+                className={styles.inputSm}
               />
             </div>
-            <div style={styles.row}>
-              <span>Sales / week</span>
+
+            <div className={styles.formRow}>
+              <span className={styles.label}>Sales / week</span>
               <input
                 inputMode="decimal"
                 value={String(gritSalesPerWeek)}
                 onChange={(e) => setGritSalesPerWeek(Number(e.target.value))}
-                style={styles.input}
+                className={styles.inputSm}
               />
             </div>
-            <div style={{ marginTop: 10, fontWeight: 950 }}>
-              Weekly from Grit & Grace: {fmt(forecast.hustle.gritWeekly)}
+
+            <div className={styles.bigLine}>
+              Weekly from Grit &amp; Grace:{" "}
+              <span className={styles.strong}>{fmt(forecast.hustle.gritWeekly)}</span>
             </div>
           </div>
 
-          <div>
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>Gap Coverage</div>
-            <div style={{ opacity: 0.85 }}>Combined hustle this week:</div>
-            <div style={{ fontSize: 22, fontWeight: 950, marginTop: 6 }}>{fmt(forecast.hustle.hustleWeekly)}</div>
+          <div className={styles.cardInner}>
+            <div className={styles.blockTitle}>Gap Coverage</div>
 
-            <div style={{ marginTop: 10, opacity: 0.85 }}>Remaining after hustle (Week 1):</div>
-            <div style={{ fontSize: 20, fontWeight: 950, marginTop: 6 }}>{fmt(forecast.hustle.remainingAfterHustle)}</div>
+            <div className={styles.labelMuted}>Combined hustle this week</div>
+            <div className={styles.bigNumber}>{fmt(forecast.hustle.hustleWeekly)}</div>
 
-            <div style={{ marginTop: 10, fontSize: 13, opacity: 0.85 }}>
-              If you wanted to cover the rest with **only**:
-              <ul style={{ marginTop: 6 }}>
-                <li>Grit & Grace: ~{forecast.hustle.moreGritSalesNeeded} more sales</li>
+            <div className={styles.labelMuted} style={{ marginTop: 10 }}>
+              Remaining after hustle (Week 1)
+            </div>
+            <div className={styles.bigNumberSm}>
+              {fmt(forecast.hustle.remainingAfterHustle)}
+            </div>
+
+            <div className={styles.note}>
+              If you wanted to cover the rest with only:
+              <ul className={styles.ul}>
+                <li>Grit &amp; Grace: ~{forecast.hustle.moreGritSalesNeeded} more sales</li>
                 <li>Spatialytics: ~{forecast.hustle.moreSpatialyticsJobsNeeded} more jobs</li>
               </ul>
             </div>
@@ -361,17 +412,19 @@ export default function ForecastPage() {
         </div>
       </div>
 
-      <div style={{ marginTop: 14, fontSize: 18, fontWeight: 950 }}>13-week carryover forecast</div>
+      <div className={styles.sectionTitle} style={{ marginTop: 14 }}>
+        13-week carryover forecast
+      </div>
 
-      <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+      <div className={styles.list}>
         {forecast.rows.map((r) => (
-          <div key={r.start} style={styles.panel}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <div style={{ fontWeight: 950 }}>{r.label}</div>
-              <div style={{ fontWeight: 950 }}>Still need: {fmt(r.stillNeed)}</div>
+          <div key={r.start} className={styles.card}>
+            <div className={styles.rowTop}>
+              <div className={styles.rowTitle}>{r.label}</div>
+              <div className={styles.rowTitle}>Still need: {fmt(r.stillNeed)}</div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginTop: 10 }}>
+            <div className={styles.grid4}>
               <Mini label="Bills due (remaining)" value={fmt(r.bills)} />
               <Mini label="Baseline" value={fmt(r.baseline)} />
               <Mini label="Income logged" value={fmt(r.income)} />
@@ -381,119 +434,71 @@ export default function ForecastPage() {
         ))}
       </div>
 
-      <footer style={{ marginTop: 18, opacity: 0.8, fontSize: 13 }}>
+      <footer className={styles.footer}>
         Note: This uses your current bucket “remaining” (target - saved) and your logged income entries.
-        Next step is to add real “expenses” and/or recurring monthly schedules so the forecast becomes a true budget.
+        Next step is adding real “expenses” and/or recurring monthly schedules so the forecast becomes a true budget.
       </footer>
     </div>
   );
 }
 
 /* =============================
-   UI bits
+   STYLES (dark glass)
 ============================= */
 
-function Card({ title, value, hint }: { title: string; value: string; hint?: string }) {
-  return (
-    <div style={styles.panel}>
-      <div style={{ opacity: 0.78, fontSize: 13, fontWeight: 800 }}>{title}</div>
-      <div style={{ fontSize: 22, fontWeight: 950, marginTop: 6 }}>{value}</div>
-      {hint ? <div style={{ marginTop: 8, opacity: 0.78, fontSize: 13 }}>{hint}</div> : null}
-    </div>
-  );
-}
+const styles = {
+  shell: "mx-auto w-full max-w-3xl px-4 pb-28 pt-4",
+  loading: "mx-auto w-full max-w-3xl px-4 pb-28 pt-6 text-white/80",
+  header:
+    "rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)] flex flex-col gap-4 sm:flex-row sm:items-stretch sm:justify-between",
+  headerLeft: "min-w-0",
+  h1: "text-2xl font-black tracking-tight",
+  sub: "mt-1 text-sm text-white/70",
+  headerLinks: "mt-3 flex flex-wrap gap-2",
+  linkBtn:
+    "inline-flex items-center rounded-xl border border-white/12 bg-white/10 px-3 py-2 text-sm font-semibold text-white/90 hover:bg-white/14 active:scale-[0.99] transition",
 
-function Mini({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={styles.panelMini}>
-      <div style={{ opacity: 0.78, fontSize: 12, fontWeight: 800 }}>{label}</div>
-      <div style={{ fontWeight: 950, marginTop: 4 }}>{value}</div>
-    </div>
-  );
-}
+  grid3: "mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3",
+  grid4: "mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4",
+  list: "mt-3 grid gap-3",
 
-function btnLink(): React.CSSProperties {
-  return {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(0,0,0,0.14)",
-    background: "rgba(255,255,255,0.92)",
-    backdropFilter: "blur(6px)",
-    cursor: "pointer",
-    fontWeight: 900,
-    textDecoration: "none",
-    color: "black",
-    display: "inline-block",
-  };
-}
+  card:
+    "rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)]",
+  cardMini:
+    "rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)]",
+  cardInner:
+    "rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-xl",
 
-/* =============================
-   STYLES
-============================= */
+  cardTitle: "text-xs font-extrabold text-white/70",
+  cardValue: "mt-1 text-xl font-black",
+  cardHint: "mt-2 text-xs text-white/65",
 
-const styles: Record<string, React.CSSProperties> = {
-  shell: {
-    maxWidth: 1100,
-    margin: "0 auto",
-    padding: 16,
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
-    background: "#eef4ff",
-    minHeight: "100vh",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-    alignItems: "stretch",
-    flexWrap: "wrap",
-    padding: 14,
-    background: "rgba(255,255,255,0.92)",
-    backdropFilter: "blur(6px)",
-    borderRadius: 16,
-    border: "1px solid rgba(0,0,0,0.10)",
-    boxShadow: "0 1px 0 rgba(0,0,0,0.04)",
-  },
-  grid3: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 12,
-    marginTop: 12,
-  },
-  panel: {
-    border: "1px solid rgba(0,0,0,0.10)",
-    borderRadius: 16,
-    padding: 14,
-    background: "rgba(255,255,255,0.92)",
-    backdropFilter: "blur(6px)",
-    boxShadow: "0 1px 0 rgba(0,0,0,0.04)",
-  },
-  panelMini: {
-    border: "1px solid rgba(0,0,0,0.10)",
-    borderRadius: 16,
-    padding: 12,
-    background: "rgba(255,255,255,0.92)",
-    backdropFilter: "blur(6px)",
-  },
-  hustleGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 12,
-    alignItems: "start",
-  },
-  row: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 10,
-    alignItems: "center",
-    marginTop: 8,
-    fontSize: 13,
-  },
-  input: {
-    width: "100%",
-    padding: "10px 10px",
-    borderRadius: 12,
-    border: "1px solid rgba(0,0,0,0.15)",
-    outline: "none",
-    background: "white",
-  },
-};
+  mini: "rounded-xl border border-white/10 bg-white/5 p-3",
+  miniLabel: "text-[11px] font-extrabold text-white/70",
+  miniValue: "mt-1 text-sm font-black text-white/90",
+
+  sectionTitle: "text-lg font-black",
+  blockTitle: "text-sm font-black text-white/90",
+  label: "text-xs font-semibold text-white/75",
+  labelMuted: "text-xs font-semibold text-white/70",
+  strong: "font-black text-white/95",
+
+  hustleGrid: "mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3",
+  formRow: "mt-2 flex items-center justify-between gap-3",
+  input:
+    "mt-3 w-full max-w-[220px] rounded-xl border border-white/12 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40",
+  inputSm:
+    "w-[120px] rounded-xl border border-white/12 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40 text-right",
+
+  bigLine: "mt-3 text-sm text-white/80",
+  bigNumber: "mt-2 text-2xl font-black",
+  bigNumberSm: "mt-2 text-xl font-black",
+
+  note: "mt-3 text-xs text-white/70",
+  ul: "mt-2 list-disc pl-5 space-y-1",
+
+  rowTop: "flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between",
+  rowTitle: "text-sm font-black text-white/90",
+
+  footer: "mt-4 pb-8 text-xs text-white/60",
+} as const;
