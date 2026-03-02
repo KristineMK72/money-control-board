@@ -442,7 +442,8 @@ export default function ForecastPage() {
 ============================= */
 
 const styles = {
-  shell: "mx-auto w-full max-w-3xl px-4 pb-28 pt-4 text-white",
+  shell:
+  "mx-auto w-full max-w-3xl px-4 pb-28 pt-4 text-white font-sans antialiased",
   loading: "mx-auto w-full max-w-3xl px-4 pb-28 pt-6 text-white/80",
 
   hero:
