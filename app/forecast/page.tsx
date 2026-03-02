@@ -38,7 +38,6 @@ type StorageShape = {
   meta?: { lastMonthlyApplied?: string };
 };
 
-// ⚠️ MUST MATCH your /money page key
 const STORAGE_KEY = "money-control-board-v4";
 
 /* =============================
@@ -49,9 +48,11 @@ function clampMoney(n: number) {
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100) / 100;
 }
+
 function fmt(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
+
 function todayISO() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -59,75 +60,69 @@ function todayISO() {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
+
 function addDaysISO(iso: string, days: number) {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
 function startOfWeekISO(iso: string) {
+  // Monday start
   const d = new Date(iso + "T00:00:00");
   const day = d.getDay(); // 0 Sun..6 Sat
   const mondayOffset = (day + 6) % 7;
   d.setDate(d.getDate() - mondayOffset);
   return d.toISOString().slice(0, 10);
 }
+
 function endOfWeekISO(iso: string) {
   return addDaysISO(startOfWeekISO(iso), 6);
 }
+
 function inRangeISO(d: string, start: string, end: string) {
   return d >= start && d <= end;
 }
+
 function monthKey(iso: string) {
   return iso.slice(0, 7); // YYYY-MM
 }
+
 function quarterKey(iso: string) {
   const y = Number(iso.slice(0, 4));
-  const m = Number(iso.slice(5, 7));
+  const m = Number(iso.slice(5, 7)); // 1-12
   const q = Math.floor((m - 1) / 3) + 1;
   return `${y}-Q${q}`;
 }
 
 /* =============================
-   UI bits (INLINE styles so it NEVER breaks)
+   UI bits
 ============================= */
 
 function Card({
   title,
   value,
-  subtitle,
+  hint,
 }: {
   title: string;
   value: string;
-  subtitle?: string;
+  hint?: string;
 }) {
   return (
-    <div style={S.card}>
-      <div style={S.cardTitle}>{title}</div>
-      <div style={S.cardValue}>{value}</div>
-      {subtitle ? <div style={S.cardSub}>{subtitle}</div> : null}
+    <div className={styles.card}>
+      <div className={styles.cardTitle}>{title}</div>
+      <div className={styles.cardValue}>{value}</div>
+      {hint ? <div className={styles.cardHint}>{hint}</div> : null}
     </div>
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (n: number) => void;
-}) {
+function StatRow({ label, value }: { label: string; value: string }) {
   return (
-    <label style={S.field}>
-      <div style={S.fieldLabel}>{label}</div>
-      <input
-        inputMode="decimal"
-        value={String(value)}
-        onChange={(e) => onChange(Number(e.target.value))}
-        style={S.input}
-      />
-    </label>
+    <div className={styles.statRow}>
+      <div className={styles.statLabel}>{label}</div>
+      <div className={styles.statValue}>{value}</div>
+    </div>
   );
 }
 
@@ -142,7 +137,7 @@ export default function ForecastPage() {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
 
-  // baseline per week
+  // Weekly baseline
   const [weeklyBaseline, setWeeklyBaseline] = useState<number>(350);
 
   // Hustle assumptions
@@ -169,7 +164,7 @@ export default function ForecastPage() {
     }
   }, []);
 
-  const data = useMemo(() => {
+  const forecast = useMemo(() => {
     const w1Start = startOfWeekISO(now);
 
     const weeks = Array.from({ length: 13 }).map((_, i) => {
@@ -190,7 +185,10 @@ export default function ForecastPage() {
           .reduce((s, e) => s + (e.amount || 0), 0)
       );
 
-    const billsDueInWeek = (start: string, end: string) =>
+    // ✅ Bills split into:
+    // 1) dueThisWeek: dueDate within week
+    // 2) overdueCarry: dueDate before week start AND still remaining
+    const dueThisWeek = (start: string, end: string) =>
       clampMoney(
         buckets
           .filter((b) => (b.dueDate || "").trim())
@@ -198,28 +196,44 @@ export default function ForecastPage() {
           .reduce((s, b) => s + remainingForBucket(b), 0)
       );
 
-    // Carryover pacing
+    const overdueCarry = (start: string) =>
+      clampMoney(
+        buckets
+          .filter((b) => (b.dueDate || "").trim())
+          .filter((b) => (b.dueDate || "").trim() < start)
+          .reduce((s, b) => s + remainingForBucket(b), 0)
+      );
+
+    // Carryover model: unmet need rolls forward
     let carry = 0;
+
     const rows = weeks.map((w) => {
-      const bills = billsDueInWeek(w.start, w.end);
       const income = incomeInWeek(w.start, w.end);
+      const billsDue = dueThisWeek(w.start, w.end);
+      const billsOverdue = overdueCarry(w.start);
 
-      const needTotal = clampMoney(bills + weeklyBaseline + carry);
+      // Total bills shown this week = overdue still remaining + this week's due bills
+      // (This matches “it stays on the list until you fund it.”)
+      const billsTotal = clampMoney(billsOverdue + billsDue);
+
+      const needTotal = clampMoney(billsTotal + weeklyBaseline + carry);
       const stillNeed = clampMoney(Math.max(0, needTotal - income));
-
       carry = stillNeed;
 
       return {
         ...w,
-        bills,
         income,
+        billsDue,
+        billsOverdue,
+        billsTotal,
         baseline: weeklyBaseline,
         needTotal,
         stillNeed,
       };
     });
 
-    // ✅ FIXED totals: do NOT sum stillNeed (carryover repeats)
+    // ✅ FIXED month/quarter totals:
+    // baseline + bills - income (no summing "stillNeed")
     const thisMonth = monthKey(now);
     const thisQuarter = quarterKey(now);
 
@@ -234,14 +248,19 @@ export default function ForecastPage() {
     const monthBaselineTotal = clampMoney(monthWeeks * weeklyBaseline);
     const quarterBaselineTotal = clampMoney(quarterWeeks * weeklyBaseline);
 
-    const monthBills = sum(monthRows.map((r) => r.bills));
-    const quarterBills = sum(quarterRows.map((r) => r.bills));
+    // For totals, use billsDue + overdue at the START of each week would double count overdue.
+    // So totals should use ONLY bills that are actually due inside that month/quarter,
+    // plus baseline, minus income. (Overdue is already "you missed it"; it belongs in carryover pacing.)
+    const billsDueInRows = (rs: typeof rows) => sum(rs.map((r) => r.billsDue));
+
+    const monthBillsDue = billsDueInRows(monthRows);
+    const quarterBillsDue = billsDueInRows(quarterRows);
 
     const monthIncome = sum(monthRows.map((r) => r.income));
     const quarterIncome = sum(quarterRows.map((r) => r.income));
 
-    const monthNeed = clampMoney(Math.max(0, monthBaselineTotal + monthBills - monthIncome));
-    const quarterNeed = clampMoney(Math.max(0, quarterBaselineTotal + quarterBills - quarterIncome));
+    const monthNeed = clampMoney(Math.max(0, monthBaselineTotal + monthBillsDue - monthIncome));
+    const quarterNeed = clampMoney(Math.max(0, quarterBaselineTotal + quarterBillsDue - quarterIncome));
 
     // Hustle math
     const spatialyticsWeekly = clampMoney(spatialyticsPerJob * spatialyticsJobsPerWeek);
@@ -258,19 +277,21 @@ export default function ForecastPage() {
       spatialyticsPerJob > 0 ? Math.ceil(remainingAfterHustle / spatialyticsPerJob) : 0;
 
     return {
+      rows,
       thisMonth,
       thisQuarter,
       totals: {
         monthNeed,
         quarterNeed,
+        monthWeeks,
+        quarterWeeks,
         monthBaselineTotal,
-        monthBills,
-        monthIncome,
         quarterBaselineTotal,
-        quarterBills,
+        monthBillsDue,
+        quarterBillsDue,
+        monthIncome,
         quarterIncome,
       },
-      rows,
       hustle: {
         spatialyticsWeekly,
         gritWeekly,
@@ -292,303 +313,162 @@ export default function ForecastPage() {
     gritSalesPerWeek,
   ]);
 
-  if (!loaded) return <div style={S.loading}>Loading forecast…</div>;
+  if (!loaded) return <div className={styles.loading}>Loading forecast…</div>;
 
   return (
-    <div style={S.shell}>
-      <div style={S.hero}>
+    <div className={styles.shell}>
+      <div className={styles.hero}>
         <div>
-          <div style={S.h1}>Forecast</div>
-          <div style={S.sub}>
-            Month/quarter totals (no double counting) + a week-to-week carryover “pacing” view.
+          <div className={styles.h1}>Forecast</div>
+          <div className={styles.sub}>
+            Week-to-week carryover pacing + realistic month/quarter totals + hustle planner.
           </div>
-
-          <div style={{ marginTop: 12 }}>
-            <Link href="/money" style={S.btn}>
+          <div className={styles.headerLinks}>
+            <Link href="/money" className={styles.linkBtn}>
               ← Back to Board
             </Link>
           </div>
         </div>
 
-        <div style={S.cardMini}>
-          <div style={S.miniTop}>Weekly baseline</div>
-          <div style={S.miniSub}>Gas / food / basics</div>
+        <div className={styles.miniCard}>
+          <div className={styles.miniTop}>Weekly baseline</div>
+          <div className={styles.miniSub}>Gas / food / basics</div>
           <input
             inputMode="decimal"
             value={String(weeklyBaseline)}
             onChange={(e) => setWeeklyBaseline(Number(e.target.value))}
-            style={S.input}
+            className={styles.input}
           />
         </div>
       </div>
 
-      <div style={S.grid3}>
+      <div className={styles.grid3}>
         <Card
-          title={`Needed this month (${data.thisMonth})`}
-          value={fmt(data.totals.monthNeed)}
-          subtitle={`Baseline ${fmt(data.totals.monthBaselineTotal)} + Bills ${fmt(
-            data.totals.monthBills
-          )} − Income ${fmt(data.totals.monthIncome)}`}
+          title={`Needed this month (${forecast.thisMonth})`}
+          value={fmt(forecast.totals.monthNeed)}
+          hint={`(${forecast.totals.monthWeeks} wks) Baseline ${fmt(
+            forecast.totals.monthBaselineTotal
+          )} + Bills due ${fmt(forecast.totals.monthBillsDue)} − Income ${fmt(
+            forecast.totals.monthIncome
+          )}`}
         />
         <Card
-          title={`Needed this quarter (${data.thisQuarter})`}
-          value={fmt(data.totals.quarterNeed)}
-          subtitle={`Baseline ${fmt(data.totals.quarterBaselineTotal)} + Bills ${fmt(
-            data.totals.quarterBills
-          )} − Income ${fmt(data.totals.quarterIncome)}`}
+          title={`Needed this quarter (${forecast.thisQuarter})`}
+          value={fmt(forecast.totals.quarterNeed)}
+          hint={`(${forecast.totals.quarterWeeks} wks) Baseline ${fmt(
+            forecast.totals.quarterBaselineTotal
+          )} + Bills due ${fmt(forecast.totals.quarterBillsDue)} − Income ${fmt(
+            forecast.totals.quarterIncome
+          )}`}
         />
         <Card
-          title="Week 1 gap (carryover pacing)"
-          value={fmt(data.hustle.week1Gap)}
-          subtitle="This is the running carryover model."
+          title="Week 1 gap (carryover view)"
+          value={fmt(forecast.hustle.week1Gap)}
+          hint="This includes overdue carry + baseline + carryover, minus logged income."
         />
       </div>
 
-      <div style={S.card}>
-        <div style={S.sectionTitle}>Hustle planner</div>
-        <div style={S.sectionSub}>Mobile-friendly inputs (labels above, no squish).</div>
+      <div className={styles.card}>
+        <div className={styles.sectionTitle}>Hustle planner</div>
+        <div className={styles.noteTop}>Mobile-friendly inputs (they stack).</div>
 
-        <div style={S.grid2}>
-          <div style={S.innerCard}>
-            <div style={S.blockTitle}>Spatialytics</div>
-            <Field label="Avg $ per job" value={spatialyticsPerJob} onChange={setSpatialyticsPerJob} />
-            <Field
-              label="Jobs per week"
-              value={spatialyticsJobsPerWeek}
-              onChange={setSpatialyticsJobsPerWeek}
-            />
-            <div style={S.line}>
-              Weekly from Spatialytics: <b>{fmt(data.hustle.spatialyticsWeekly)}</b>
+        <div className={styles.hustleGrid}>
+          <div className={styles.inner}>
+            <div className={styles.blockTitle}>Spatialytics</div>
+
+            <label className={styles.field}>
+              <span>Avg $ per job</span>
+              <input
+                inputMode="decimal"
+                value={String(spatialyticsPerJob)}
+                onChange={(e) => setSpatialyticsPerJob(Number(e.target.value))}
+                className={styles.input}
+              />
+            </label>
+
+            <label className={styles.field}>
+              <span>Jobs / week</span>
+              <input
+                inputMode="decimal"
+                value={String(spatialyticsJobsPerWeek)}
+                onChange={(e) => setSpatialyticsJobsPerWeek(Number(e.target.value))}
+                className={styles.input}
+              />
+            </label>
+
+            <div className={styles.bigLine}>
+              Weekly from Spatialytics:{" "}
+              <span className={styles.strong}>{fmt(forecast.hustle.spatialyticsWeekly)}</span>
             </div>
           </div>
 
-          <div style={S.innerCard}>
-            <div style={S.blockTitle}>Grit &amp; Grace</div>
-            <Field label="Profit per sale" value={gritProfitPerSale} onChange={setGritProfitPerSale} />
-            <Field label="Sales per week" value={gritSalesPerWeek} onChange={setGritSalesPerWeek} />
-            <div style={S.line}>
-              Weekly from G&amp;G: <b>{fmt(data.hustle.gritWeekly)}</b>
+          <div className={styles.inner}>
+            <div className={styles.blockTitle}>Grit &amp; Grace</div>
+
+            <label className={styles.field}>
+              <span>Profit per sale</span>
+              <input
+                inputMode="decimal"
+                value={String(gritProfitPerSale)}
+                onChange={(e) => setGritProfitPerSale(Number(e.target.value))}
+                className={styles.input}
+              />
+            </label>
+
+            <label className={styles.field}>
+              <span>Sales / week</span>
+              <input
+                inputMode="decimal"
+                value={String(gritSalesPerWeek)}
+                onChange={(e) => setGritSalesPerWeek(Number(e.target.value))}
+                className={styles.input}
+              />
+            </label>
+
+            <div className={styles.bigLine}>
+              Weekly from G&amp;G:{" "}
+              <span className={styles.strong}>{fmt(forecast.hustle.gritWeekly)}</span>
             </div>
           </div>
-        </div>
 
-        <div style={{ ...S.innerCard, marginTop: 12 }}>
-          <div style={S.blockTitle}>Gap coverage (Week 1)</div>
-          <div style={S.bigRow}>
-            <div>
-              <div style={S.muted}>Combined hustle this week</div>
-              <div style={S.big}>{fmt(data.hustle.hustleWeekly)}</div>
-            </div>
-            <div>
-              <div style={S.muted}>Remaining after hustle</div>
-              <div style={S.big}>{fmt(data.hustle.remainingAfterHustle)}</div>
-            </div>
-          </div>
+          <div className={styles.inner}>
+            <div className={styles.blockTitle}>Gap coverage</div>
 
-          <div style={S.note}>
-            If you covered the rest with only:
-            <ul style={{ margin: "8px 0 0 18px" }}>
-              <li>G&amp;G: ~{data.hustle.moreGritSalesNeeded} more sales</li>
-              <li>Spatialytics: ~{data.hustle.moreSpatialyticsJobsNeeded} more jobs</li>
-            </ul>
+            <div className={styles.labelMuted}>Combined hustle this week</div>
+            <div className={styles.bigNumber}>{fmt(forecast.hustle.hustleWeekly)}</div>
+
+            <div className={styles.labelMuted} style={{ marginTop: 10 }}>
+              Remaining after hustle (Week 1)
+            </div>
+            <div className={styles.bigNumberSm}>{fmt(forecast.hustle.remainingAfterHustle)}</div>
+
+            <div className={styles.note}>
+              Cover the rest with only:
+              <ul className={styles.ul}>
+                <li>G&amp;G: ~{forecast.hustle.moreGritSalesNeeded} more sales</li>
+                <li>Spatialytics: ~{forecast.hustle.moreSpatialyticsJobsNeeded} more jobs</li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
 
-      <div style={{ marginTop: 14 }}>
-        <div style={S.sectionTitle}>13-week carryover pacing</div>
-        <div style={S.sectionSub}>
-          Tap a week to open details (keeps it readable).
-        </div>
+      <div className={styles.sectionTitle} style={{ marginTop: 14 }}>
+        13-week carryover pacing
       </div>
+      <div className={styles.noteTop}>Tap a week to open details (keeps it readable).</div>
 
-      <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-        {data.rows.map((r) => (
-          <details key={r.start} style={S.weekCard}>
-            <summary style={S.weekSummary}>
-              <div style={{ fontWeight: 900 }}>{r.label}</div>
-              <div style={{ fontWeight: 950 }}>{fmt(r.stillNeed)}</div>
+      <div className={styles.list}>
+        {forecast.rows.map((r) => (
+          <details key={r.start} className={styles.details}>
+            <summary className={styles.summary}>
+              <div className={styles.summaryLeft}>
+                <div className={styles.weekTitle}>{r.label}</div>
+                <div className={styles.weekSub}>
+                  Due {fmt(r.billsDue)} · Overdue {fmt(r.billsOverdue)} · Income {fmt(r.income)}
+                </div>
+              </div>
+              <div className={styles.weekNeed}>{fmt(r.stillNeed)}</div>
             </summary>
 
-            <div style={S.weekDetails}>
-              <div style={S.kv}>
-                <span style={S.k}>Bills due</span>
-                <span style={S.v}>{fmt(r.bills)}</span>
-              </div>
-              <div style={S.kv}>
-                <span style={S.k}>Baseline</span>
-                <span style={S.v}>{fmt(r.baseline)}</span>
-              </div>
-              <div style={S.kv}>
-                <span style={S.k}>Income logged</span>
-                <span style={S.v}>{fmt(r.income)}</span>
-              </div>
-              <div style={S.kv}>
-                <span style={S.k}>Total need</span>
-                <span style={S.v}>{fmt(r.needTotal)}</span>
-              </div>
-            </div>
-          </details>
-        ))}
-      </div>
-
-      <div style={S.footer}>
-        Month/Quarter totals are <b>baseline + bills − income</b> (no double-counting carryover).
-        The weekly list is a pacing model where any “uncovered need” rolls forward.
-      </div>
-    </div>
-  );
-}
-
-/* =============================
-   STYLES
-============================= */
-
-const S: Record<string, React.CSSProperties> = {
-  shell: {
-    maxWidth: 920,
-    margin: "0 auto",
-    padding: 16,
-    paddingBottom: 120, // room for BottomNav
-    color: "white",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
-  },
-  loading: {
-    maxWidth: 920,
-    margin: "0 auto",
-    padding: 16,
-    paddingBottom: 120,
-    color: "rgba(255,255,255,0.75)",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
-  },
-
-  hero: {
-    borderRadius: 22,
-    padding: 16,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(0,0,0,0.35)",
-    backdropFilter: "blur(10px)",
-    display: "flex",
-    gap: 12,
-    justifyContent: "space-between",
-    alignItems: "stretch",
-    flexWrap: "wrap",
-  },
-  h1: { fontSize: 34, fontWeight: 950, letterSpacing: -0.5 },
-  sub: { marginTop: 6, opacity: 0.8, maxWidth: 520, lineHeight: 1.4 },
-
-  btn: {
-    display: "inline-block",
-    padding: "12px 14px",
-    borderRadius: 16,
-    border: "1px solid rgba(255,255,255,0.16)",
-    background: "rgba(255,255,255,0.10)",
-    color: "white",
-    textDecoration: "none",
-    fontWeight: 900,
-  },
-
-  cardMini: {
-    minWidth: 260,
-    borderRadius: 18,
-    padding: 14,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(0,0,0,0.28)",
-  },
-  miniTop: { fontSize: 14, fontWeight: 950 },
-  miniSub: { marginTop: 4, fontSize: 12, opacity: 0.8 },
-  input: {
-    marginTop: 10,
-    width: "100%",
-    padding: "12px 12px",
-    borderRadius: 14,
-    border: "1px solid rgba(255,255,255,0.16)",
-    background: "rgba(0,0,0,0.35)",
-    color: "white",
-    outline: "none",
-    fontSize: 16,
-  },
-
-  grid3: {
-    marginTop: 12,
-    display: "grid",
-    gap: 10,
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  },
-
-  card: {
-    borderRadius: 22,
-    padding: 16,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(0,0,0,0.32)",
-    backdropFilter: "blur(10px)",
-  },
-  cardTitle: { fontSize: 12, fontWeight: 900, opacity: 0.8 },
-  cardValue: { marginTop: 8, fontSize: 32, fontWeight: 950, letterSpacing: -0.5 },
-  cardSub: { marginTop: 10, fontSize: 12, opacity: 0.78, lineHeight: 1.4 },
-
-  sectionTitle: { fontSize: 20, fontWeight: 950, letterSpacing: -0.2 },
-  sectionSub: { marginTop: 6, fontSize: 12, opacity: 0.75, lineHeight: 1.4 },
-
-  grid2: {
-    marginTop: 12,
-    display: "grid",
-    gap: 10,
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  },
-  innerCard: {
-    borderRadius: 18,
-    padding: 14,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(0,0,0,0.28)",
-  },
-  blockTitle: { fontWeight: 950, marginBottom: 8 },
-
-  field: { display: "block", marginTop: 10 },
-  fieldLabel: { fontSize: 12, fontWeight: 800, opacity: 0.85, marginBottom: 6 },
-
-  line: { marginTop: 12, opacity: 0.9, lineHeight: 1.4 },
-
-  bigRow: {
-    marginTop: 10,
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 10,
-  },
-  muted: { fontSize: 12, opacity: 0.78, fontWeight: 800 },
-  big: { fontSize: 26, fontWeight: 950, marginTop: 6 },
-
-  note: { marginTop: 10, fontSize: 12, opacity: 0.78, lineHeight: 1.4 },
-
-  weekCard: {
-    borderRadius: 18,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(0,0,0,0.28)",
-    overflow: "hidden",
-  },
-  weekSummary: {
-    listStyle: "none",
-    cursor: "pointer",
-    padding: 14,
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 10,
-    alignItems: "center",
-  },
-  weekDetails: {
-    borderTop: "1px solid rgba(255,255,255,0.10)",
-    padding: 14,
-    display: "grid",
-    gap: 10,
-  },
-  kv: { display: "flex", justifyContent: "space-between", gap: 10 },
-  k: { opacity: 0.78, fontSize: 12, fontWeight: 800 },
-  v: { fontWeight: 950 },
-
-  footer: {
-    marginTop: 14,
-    opacity: 0.7,
-    fontSize: 12,
-    lineHeight: 1.4,
-  },
-};
+            <div className={styles.detailsBody}>
