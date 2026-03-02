@@ -4,7 +4,7 @@ import OpenAI from "openai";
 export const runtime = "nodejs";
 
 const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.OPENAI_API_KEY!,
 });
 
 type Tone = "calm" | "direct" | "survival";
@@ -20,12 +20,17 @@ function computeStabilityScore(args: {
 }) {
   const { cashOnHand, weeklyBaseline, billsDueSoon } = args;
 
-  // simple “liquidity cushion” scoring
-  const need72h = weeklyBaseline * 0.45 + billsDueSoon; // ~3 days baseline + urgent bills
+  // ~3 days baseline + urgent bills
+  const need72h = weeklyBaseline * 0.45 + billsDueSoon;
   const ratio = need72h <= 0 ? 1 : cashOnHand / need72h;
 
-  // map ratio -> score
-  const raw = ratio >= 1.5 ? 85 : ratio >= 1.0 ? 70 : ratio >= 0.7 ? 55 : ratio >= 0.4 ? 35 : 20;
+  const raw =
+    ratio >= 1.5 ? 85 :
+    ratio >= 1.0 ? 70 :
+    ratio >= 0.7 ? 55 :
+    ratio >= 0.4 ? 35 :
+    20;
+
   return clamp(Math.round(raw), 0, 100);
 }
 
@@ -33,7 +38,7 @@ function fallbackPlan(input: any) {
   const cashOnHand = Number(input?.cashOnHand || 0);
   const weeklyBaseline = Number(input?.weeklyBaseline || 350);
 
-  const billsDueSoon = 0; // if you later compute due-soon bills, put it here
+  const billsDueSoon = 0;
   const stabilityScore = computeStabilityScore({ cashOnHand, weeklyBaseline, billsDueSoon });
 
   const essentials = Math.min(cashOnHand, Math.round(weeklyBaseline * 0.6));
@@ -68,8 +73,9 @@ function fallbackPlan(input: any) {
 }
 
 export async function POST(req: Request) {
+  let body: any = {};
   try {
-    const body = await req.json();
+    body = await req.json();
 
     const cashOnHand = Number(body?.cashOnHand || 0);
     const weeklyBaseline = Number(body?.weeklyBaseline || 350);
@@ -92,17 +98,20 @@ export async function POST(req: Request) {
 
     const system = `You are a practical financial triage assistant.
 Return VALID JSON ONLY. No markdown. No extra keys.
-${toneInstruction}`;
+${toneInstruction}
+Use the buckets and entries if present; if empty, still produce a useful plan.`;
 
-    const user = {
+    const userPayload = {
       cashOnHand,
       weeklyBaseline,
+      billsDueSoon,
       stabilityScoreHint: stabilityScore,
       buckets,
       entries,
       request: "Generate a 72-hour crisis plan and priority funding amounts.",
     };
 
+    // ✅ JSON Schema the model must follow
     const schema = {
       name: "crisis_plan",
       schema: {
@@ -111,9 +120,16 @@ ${toneInstruction}`;
         properties: {
           headline: { type: "string" },
           stabilityScore: { type: "number" },
-          top3ActionsNow: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 6 },
+          top3ActionsNow: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 3,
+            maxItems: 6,
+          },
           priorityFunding: {
             type: "array",
+            minItems: 2,
+            maxItems: 6,
             items: {
               type: "object",
               additionalProperties: false,
@@ -124,43 +140,46 @@ ${toneInstruction}`;
               },
               required: ["bucketName", "recommendedAmount", "why"],
             },
-            minItems: 2,
-            maxItems: 6,
           },
-          plan72h: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 10 },
+          plan72h: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 3,
+            maxItems: 10,
+          },
         },
         required: ["headline", "stabilityScore", "top3ActionsNow", "priorityFunding", "plan72h"],
       },
-      strict: true,
     };
 
-    // If you don’t have buckets/entries yet, it will still work.
+    // ✅ Updated OpenAI call for your SDK version:
     const resp = await client.responses.create({
       model: "gpt-4.1-mini",
       input: [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify(user) },
+        { role: "user", content: JSON.stringify(userPayload) },
       ],
-      text: { format: { type: "json_schema", json_schema: schema } },
+      response_format: { type: "json_schema", json_schema: schema },
     });
 
-    const text = resp.output_text;
-    const json = JSON.parse(text);
+    const text = resp.output_text || "";
+
+    let json: any;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      // If the model ever returns non-JSON, still don’t break the app:
+      json = fallbackPlan({ cashOnHand, weeklyBaseline });
+    }
 
     // Force our score in if model returns something weird:
     if (typeof json.stabilityScore !== "number") json.stabilityScore = stabilityScore;
 
-    return NextResponse.json(json);
+    return NextResponse.json(json, { status: 200 });
   } catch (err: any) {
     // Always return a usable plan even on AI failure
-    try {
-      const safe = fallbackPlan({});
-      return NextResponse.json(safe, { status: 200 });
-    } catch {
-      return NextResponse.json(
-        { error: { message: err?.message || "Unknown error" } },
-        { status: 500 }
-      );
-    }
+    const safe = fallbackPlan(body);
+    safe._debug = err?.message ? String(err.message) : "Unknown error"; // optional: remove later
+    return NextResponse.json(safe, { status: 200 });
   }
 }
