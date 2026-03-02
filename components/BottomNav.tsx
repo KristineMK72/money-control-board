@@ -10,6 +10,7 @@ const items = [
   { href: "/money/plan", label: "Plan" },
   { href: "/money/add", label: "Add/Edit" },
   { href: "/forecast", label: "Forecast" },
+  { href: "/crisis", label: "Crisis" }
 ];
 
 function isActive(pathname: string, href: string) {
