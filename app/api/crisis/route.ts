@@ -20,7 +20,6 @@ function computeStabilityScore(args: {
 }) {
   const { cashOnHand, weeklyBaseline, billsDueSoon } = args;
 
-  // ~3 days baseline + urgent bills
   const need72h = weeklyBaseline * 0.45 + billsDueSoon;
   const ratio = need72h <= 0 ? 1 : cashOnHand / need72h;
 
@@ -72,6 +71,36 @@ function fallbackPlan(input: any) {
   };
 }
 
+function coercePlanShape(json: any, stabilityScore: number) {
+  const safe = typeof json === "object" && json ? json : {};
+
+  if (typeof safe.headline !== "string") safe.headline = "72-Hour Crisis Plan";
+  if (typeof safe.stabilityScore !== "number") safe.stabilityScore = stabilityScore;
+
+  if (!Array.isArray(safe.top3ActionsNow)) safe.top3ActionsNow = [];
+  if (safe.top3ActionsNow.length < 3) {
+    safe.top3ActionsNow = [
+      "Pause all non-essential spending for 72 hours.",
+      "Cover food/gas/housing basics first.",
+      "Call any due-now billers and request hardship/extension.",
+    ];
+  }
+
+  if (!Array.isArray(safe.priorityFunding)) safe.priorityFunding = [];
+  if (safe.priorityFunding.length < 2) {
+    safe.priorityFunding = fallbackPlan({}).priorityFunding;
+  }
+
+  if (!Array.isArray(safe.plan72h)) safe.plan72h = fallbackPlan({}).plan72h;
+
+  // Trim to reasonable sizes
+  safe.top3ActionsNow = safe.top3ActionsNow.slice(0, 6);
+  safe.priorityFunding = safe.priorityFunding.slice(0, 6);
+  safe.plan72h = safe.plan72h.slice(0, 10);
+
+  return safe;
+}
+
 export async function POST(req: Request) {
   let body: any = {};
   try {
@@ -84,9 +113,7 @@ export async function POST(req: Request) {
     const buckets = Array.isArray(body?.buckets) ? body.buckets : [];
     const entries = Array.isArray(body?.entries) ? body.entries : [];
 
-    // TODO later: compute bills due soon from buckets/entries if you store due dates there.
-    const billsDueSoon = 0;
-
+    const billsDueSoon = 0; // optional future enhancement
     const stabilityScore = computeStabilityScore({ cashOnHand, weeklyBaseline, billsDueSoon });
 
     const toneInstruction =
@@ -96,10 +123,16 @@ export async function POST(req: Request) {
         ? "Tone: direct, tactical, concise."
         : "Tone: strict survival mode—no fluff, hard boundaries, aggressive prioritization.";
 
-    const system = `You are a practical financial triage assistant.
-Return VALID JSON ONLY. No markdown. No extra keys.
-${toneInstruction}
-Use the buckets and entries if present; if empty, still produce a useful plan.`;
+    const schemaHint = {
+      headline: "string",
+      stabilityScore: "number 0-100",
+      top3ActionsNow: ["string", "string", "string"],
+      priorityFunding: [
+        { bucketName: "string", recommendedAmount: 0, why: "string" },
+        { bucketName: "string", recommendedAmount: 0, why: "string" },
+      ],
+      plan72h: ["string", "string", "string"],
+    };
 
     const userPayload = {
       cashOnHand,
@@ -108,78 +141,42 @@ Use the buckets and entries if present; if empty, still produce a useful plan.`;
       stabilityScoreHint: stabilityScore,
       buckets,
       entries,
-      request: "Generate a 72-hour crisis plan and priority funding amounts.",
     };
 
-    // ✅ JSON Schema the model must follow
-    const schema = {
-      name: "crisis_plan",
-      schema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          headline: { type: "string" },
-          stabilityScore: { type: "number" },
-          top3ActionsNow: {
-            type: "array",
-            items: { type: "string" },
-            minItems: 3,
-            maxItems: 6,
-          },
-          priorityFunding: {
-            type: "array",
-            minItems: 2,
-            maxItems: 6,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                bucketName: { type: "string" },
-                recommendedAmount: { type: "number" },
-                why: { type: "string" },
-              },
-              required: ["bucketName", "recommendedAmount", "why"],
-            },
-          },
-          plan72h: {
-            type: "array",
-            items: { type: "string" },
-            minItems: 3,
-            maxItems: 10,
-          },
-        },
-        required: ["headline", "stabilityScore", "top3ActionsNow", "priorityFunding", "plan72h"],
-      },
-    };
+    const system = `You are a practical financial triage assistant.
+Return ONLY valid JSON (no markdown, no commentary).
+The JSON MUST match this shape (keys exactly; no extra keys):
+${JSON.stringify(schemaHint, null, 2)}
+${toneInstruction}
+If buckets/entries are empty, still produce a useful plan.`;
 
-    // ✅ Updated OpenAI call for your SDK version:
-    const resp = await client.responses.create({
+    const completion = await client.chat.completions.create({
       model: "gpt-4.1-mini",
-      input: [
+      messages: [
         { role: "system", content: system },
         { role: "user", content: JSON.stringify(userPayload) },
       ],
-      response_format: { type: "json_schema", json_schema: schema },
+      // ✅ Supported in your SDK:
+      response_format: { type: "json_object" },
+      temperature: 0.4,
     });
 
-    const text = resp.output_text || "";
+    const text = completion.choices?.[0]?.message?.content || "{}";
 
     let json: any;
     try {
       json = JSON.parse(text);
     } catch {
-      // If the model ever returns non-JSON, still don’t break the app:
       json = fallbackPlan({ cashOnHand, weeklyBaseline });
     }
 
-    // Force our score in if model returns something weird:
-    if (typeof json.stabilityScore !== "number") json.stabilityScore = stabilityScore;
+    json = coercePlanShape(json, stabilityScore);
 
     return NextResponse.json(json, { status: 200 });
   } catch (err: any) {
-    // Always return a usable plan even on AI failure
     const safe = fallbackPlan(body);
-    safe._debug = err?.message ? String(err.message) : "Unknown error"; // optional: remove later
+    // Optional debug; remove later if you want:
+    safe._debug = err?.message ? String(err.message) : "Unknown error";
     return NextResponse.json(safe, { status: 200 });
   }
 }
