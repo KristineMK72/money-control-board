@@ -1,89 +1,99 @@
-import OpenAI from "openai";
-import { NextResponse } from "next/server";
+"use client";
 
-export const runtime = "nodejs"; // important for OpenAI SDK on Vercel
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const STORAGE_KEY = "money-control-board-v4";
 
-type Payload = {
-  cashOnHand: number;
-  paycheck: null | { date: string; amount: number };
-  weeklyBaseline: number;
-  buckets: any[];
-  entries: any[];
-};
+export default function CrisisPage() {
+  const [cashOnHand, setCashOnHand] = useState(0);
+  const [weeklyBaseline, setWeeklyBaseline] = useState(350);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<any>(null);
 
-export async function POST(req: Request) {
-  try {
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: "Missing OPENAI_API_KEY env var." },
-        { status: 500 }
-      );
-    }
+  async function runPlan() {
+    setLoading(true);
+    setData(null);
 
-    const body = (await req.json()) as Payload;
-
-    const prompt = `
-You are a calm financial triage assistant.
-Return ONLY valid JSON with this exact shape:
-
-{
-  "headline": string,
-  "top3ActionsNow": string[],
-  "priorityFunding": [
-    { "bucketName": string, "recommendedAmount": number, "why": string }
-  ]
-}
-
-Rules:
-- Keep it practical and non-judgmental.
-- Focus on the next 72 hours.
-- Use cashOnHand, paycheck (if provided), weeklyBaseline, buckets (target/saved/dueDate/priority) and recent entries.
-- If data is missing, say so in "why" and recommend the smallest safe step.
-`;
-
-    const response = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
-        { role: "system", content: prompt },
-        {
-          role: "user",
-          content: JSON.stringify(
-            {
-              cashOnHand: body.cashOnHand,
-              paycheck: body.paycheck,
-              weeklyBaseline: body.weeklyBaseline,
-              buckets: body.buckets,
-              entries: body.entries,
-            },
-            null,
-            2
-          ),
-        },
-      ],
+    const res = await fetch("/api/crisis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cashOnHand,
+        weeklyBaseline,
+      }),
     });
 
-    const text =
-      response.output_text?.trim() ||
-      "";
-
-    // Best-effort parse. If it fails, return raw.
-    try {
-      const json = JSON.parse(text);
-      return NextResponse.json(json);
-    } catch {
-      return NextResponse.json(
-        { error: "Model did not return valid JSON.", raw: text },
-        { status: 200 }
-      );
-    }
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Unknown error" },
-      { status: 500 }
-    );
+    const json = await res.json();
+    setData(json);
+    setLoading(false);
   }
+
+  return (
+    <main className="mx-auto w-full max-w-3xl px-4 pb-28 pt-4 text-white font-sans">
+      <div className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
+        <div className="text-3xl font-black">Crisis Mode</div>
+        <div className="mt-2 text-sm text-white/70">
+          Calm financial triage for the next 72 hours.
+        </div>
+
+        <div className="mt-4">
+          <Link
+            href="/money"
+            className="inline-flex items-center rounded-2xl border border-white/12 bg-white/10 px-4 py-2 text-sm font-semibold text-white/90"
+          >
+            ← Back to Board
+          </Link>
+        </div>
+
+        <div className="mt-6 grid gap-3">
+          <label className="grid gap-1">
+            <span className="text-xs font-semibold text-white/75">
+              Cash on hand
+            </span>
+            <input
+              inputMode="decimal"
+              value={String(cashOnHand)}
+              onChange={(e) => setCashOnHand(Number(e.target.value))}
+              className="w-full rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-sm text-white outline-none"
+            />
+          </label>
+
+          <label className="grid gap-1">
+            <span className="text-xs font-semibold text-white/75">
+              Weekly baseline
+            </span>
+            <input
+              inputMode="decimal"
+              value={String(weeklyBaseline)}
+              onChange={(e) => setWeeklyBaseline(Number(e.target.value))}
+              className="w-full rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-sm text-white outline-none"
+            />
+          </label>
+        </div>
+
+        <button
+          onClick={runPlan}
+          disabled={loading}
+          className="mt-5 w-full rounded-2xl bg-white/15 px-4 py-3 text-sm font-black text-white hover:bg-white/20 disabled:opacity-60"
+        >
+          {loading ? "Building plan…" : "Generate crisis plan"}
+        </button>
+      </div>
+
+      {data && (
+        <div className="mt-4 grid gap-3">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
+            <div className="text-xl font-black">{data.headline}</div>
+
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-white/80">
+              {(data.top3ActionsNow || []).map((x: string, i: number) => (
+                <li key={i}>{x}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </main>
+  );
 }
