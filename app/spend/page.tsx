@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { SpendCategory, SpendEntry, StorageShape } from "../../lib/store/types";
-import { STORAGE_KEY, useMoneyStore } from "../../lib/store/monet";
-import { clampMoney, monthKeyFromISO, todayISO } from "../../lib/store/utils";
+
+import type { SpendCategory, SpendEntry, StorageShape } from "@/lib/money/types";
+import { useMoneyStore } from "@/lib/money/store";
+import { STORAGE_KEY } from "@/lib/money/storageKey";
+import { clampMoney, monthKeyFromISO, todayISO } from "@/lib/money/utils";
 
 /** ---------- categories ---------- */
 const CATEGORY_LABEL: Record<SpendCategory, string> = {
