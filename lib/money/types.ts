@@ -68,6 +68,6 @@ export type SpendEntry = {
 export type StorageShape = {
   buckets: Bucket[];
   entries: Entry[];
-  spend: SpendEntry[]; // ✅ ADD THIS
+  spend: SpendEntry[]; // ✅ add this
   meta?: { lastMonthlyApplied?: string };
 };
