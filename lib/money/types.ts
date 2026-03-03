@@ -39,8 +39,35 @@ export type Entry = {
   allocations: Partial<Record<BucketKey, number>>;
 };
 
+/* =========================
+   Spend Tracker (NEW)
+========================= */
+
+export type SpendCategory =
+  | "groceries"
+  | "gas"
+  | "eating_out"
+  | "kids"
+  | "business"
+  | "self_care"
+  | "subscriptions"
+  | "misc";
+
+export type SpendEntry = {
+  id: string;
+  dateISO: string; // YYYY-MM-DD
+  amount: number;
+  category: SpendCategory;
+  note?: string;
+};
+
+/* =========================
+   Storage
+========================= */
+
 export type StorageShape = {
   buckets: Bucket[];
   entries: Entry[];
+  spend: SpendEntry[]; // ✅ ADD THIS
   meta?: { lastMonthlyApplied?: string };
 };
