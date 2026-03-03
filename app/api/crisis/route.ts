@@ -175,8 +175,6 @@ If buckets/entries are empty, still produce a useful plan.`;
     return NextResponse.json(json, { status: 200 });
   } catch (err: any) {
     const safe = fallbackPlan(body);
-    // Optional debug; remove later if you want:
-    safe._debug = err?.message ? String(err.message) : "Unknown error";
     return NextResponse.json(safe, { status: 200 });
   }
 }
