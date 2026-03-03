@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Bucket, BucketKey, Entry, StorageShape } from "./types";
+import type {
+  Bucket,
+  BucketKey,
+  Entry,
+  StorageShape,
+  SpendEntry,
+  SpendCategory,
+} from "./types";
 import {
   applyMonthlyAutoAdd,
   clampDayOfMonth,
@@ -15,29 +22,220 @@ export const STORAGE_KEY = "money-control-board-v6";
 
 function defaultBuckets(): Bucket[] {
   return [
-    { key: "car", name: "Car Repair", target: 300, saved: 0, due: "ASAP (safety + income)", priority: 1, focus: true, kind: "bill" },
-    { key: "insurance", name: "Insurance", target: 124, saved: 0, dueDate: "2026-02-23", due: "before Feb 23", priority: 1, focus: true, kind: "bill" },
-    { key: "power", name: "Crow Wing Power", target: 137, saved: 0, due: "ASAP", priority: 1, focus: true, kind: "bill" },
-    { key: "collections", name: "$100 Before Collections", target: 100, saved: 0, due: "ASAP", priority: 1, focus: true, kind: "bill" },
+    {
+      key: "car",
+      name: "Car Repair",
+      target: 300,
+      saved: 0,
+      due: "ASAP (safety + income)",
+      priority: 1,
+      focus: true,
+      kind: "bill",
+    },
+    {
+      key: "insurance",
+      name: "Insurance",
+      target: 124,
+      saved: 0,
+      dueDate: "2026-02-23",
+      due: "before Feb 23",
+      priority: 1,
+      focus: true,
+      kind: "bill",
+    },
+    {
+      key: "power",
+      name: "Crow Wing Power",
+      target: 137,
+      saved: 0,
+      due: "ASAP",
+      priority: 1,
+      focus: true,
+      kind: "bill",
+    },
+    {
+      key: "collections",
+      name: "$100 Before Collections",
+      target: 100,
+      saved: 0,
+      due: "ASAP",
+      priority: 1,
+      focus: true,
+      kind: "bill",
+    },
 
-    { key: "acct0928", name: "Card 0928 (Min Payment)", target: 55.57, saved: 0, priority: 1, focus: true, kind: "credit", isMonthly: true, monthlyTarget: 55.57, dueDay: 6, balance: 602.31, minPayment: 55.57 },
-    { key: "creditone", name: "Credit One (Min Payment)", target: 52, saved: 0, priority: 1, focus: true, kind: "credit", isMonthly: true, monthlyTarget: 52, dueDay: 18, balance: 1028.22, minPayment: 52, due: "Over limit" },
-    { key: "sparrow", name: "Sparrow (Min Payment)", target: 35, saved: 0, priority: 1, focus: true, kind: "credit", isMonthly: true, monthlyTarget: 35, dueDay: 18, balance: 304.39, minPayment: 35, due: "Overlimit ~$4.39" },
+    {
+      key: "acct0928",
+      name: "Card 0928 (Min Payment)",
+      target: 55.57,
+      saved: 0,
+      priority: 1,
+      focus: true,
+      kind: "credit",
+      isMonthly: true,
+      monthlyTarget: 55.57,
+      dueDay: 6,
+      balance: 602.31,
+      minPayment: 55.57,
+    },
+    {
+      key: "creditone",
+      name: "Credit One (Min Payment)",
+      target: 52,
+      saved: 0,
+      priority: 1,
+      focus: true,
+      kind: "credit",
+      isMonthly: true,
+      monthlyTarget: 52,
+      dueDay: 18,
+      balance: 1028.22,
+      minPayment: 52,
+      due: "Over limit",
+    },
+    {
+      key: "sparrow",
+      name: "Sparrow (Min Payment)",
+      target: 35,
+      saved: 0,
+      priority: 1,
+      focus: true,
+      kind: "credit",
+      isMonthly: true,
+      monthlyTarget: 35,
+      dueDay: 18,
+      balance: 304.39,
+      minPayment: 35,
+      due: "Overlimit ~$4.39",
+    },
 
-    { key: "tsa", name: "TSA Temp 10-day", target: 45, saved: 0, due: "before Tues trip", priority: 2, focus: true, kind: "bill" },
-    { key: "verizon", name: "Verizon (one-time spike)", target: 320, saved: 0, dueDate: "2026-02-28", due: "Feb 28", priority: 2, focus: true, kind: "bill" },
-    { key: "varo", name: "Varo", target: 81, saved: 0, dueDate: "2026-02-28", due: "Feb 28", priority: 2, focus: true, kind: "bill" },
+    {
+      key: "tsa",
+      name: "TSA Temp 10-day",
+      target: 45,
+      saved: 0,
+      due: "before Tues trip",
+      priority: 2,
+      focus: true,
+      kind: "bill",
+    },
+    {
+      key: "verizon",
+      name: "Verizon (one-time spike)",
+      target: 320,
+      saved: 0,
+      dueDate: "2026-02-28",
+      due: "Feb 28",
+      priority: 2,
+      focus: true,
+      kind: "bill",
+    },
+    {
+      key: "varo",
+      name: "Varo",
+      target: 81,
+      saved: 0,
+      dueDate: "2026-02-28",
+      due: "Feb 28",
+      priority: 2,
+      focus: true,
+      kind: "bill",
+    },
 
-    { key: "capone", name: "Capital One (Min Payment)", target: 25, saved: 0, priority: 2, focus: true, kind: "credit", isMonthly: true, monthlyTarget: 25, dueDay: 20, balance: 303.41, minPayment: 25 },
-    { key: "indigo", name: "Indigo (Min Payment)", target: 40, saved: 0, priority: 2, focus: true, kind: "credit", isMonthly: true, monthlyTarget: 40, dueDay: 22, balance: 494.64, minPayment: 40, due: "Over limit" },
-    { key: "destiny", name: "Destiny (Min Payment)", target: 40, saved: 0, priority: 2, focus: true, kind: "credit", isMonthly: true, monthlyTarget: 40, dueDay: 22, balance: 234.35, minPayment: 40 },
+    {
+      key: "capone",
+      name: "Capital One (Min Payment)",
+      target: 25,
+      saved: 0,
+      priority: 2,
+      focus: true,
+      kind: "credit",
+      isMonthly: true,
+      monthlyTarget: 25,
+      dueDay: 20,
+      balance: 303.41,
+      minPayment: 25,
+    },
+    {
+      key: "indigo",
+      name: "Indigo (Min Payment)",
+      target: 40,
+      saved: 0,
+      priority: 2,
+      focus: true,
+      kind: "credit",
+      isMonthly: true,
+      monthlyTarget: 40,
+      dueDay: 22,
+      balance: 494.64,
+      minPayment: 40,
+      due: "Over limit",
+    },
+    {
+      key: "destiny",
+      name: "Destiny (Min Payment)",
+      target: 40,
+      saved: 0,
+      priority: 2,
+      focus: true,
+      kind: "credit",
+      isMonthly: true,
+      monthlyTarget: 40,
+      dueDay: 22,
+      balance: 234.35,
+      minPayment: 40,
+    },
 
-    { key: "cpsloan", name: "CPS Auto Loan (Payment)", target: 632.03, saved: 0, priority: 1, focus: true, kind: "loan", isMonthly: true, monthlyTarget: 632.03, dueDay: 21, balance: 25484.53, minPayment: 632.03, due: "Past due shown (fees included)" },
+    {
+      key: "cpsloan",
+      name: "CPS Auto Loan (Payment)",
+      target: 632.03,
+      saved: 0,
+      priority: 1,
+      focus: true,
+      kind: "loan",
+      isMonthly: true,
+      monthlyTarget: 632.03,
+      dueDay: 21,
+      balance: 25484.53,
+      minPayment: 632.03,
+      due: "Past due shown (fees included)",
+    },
 
-    { key: "homechoice", name: "Home Choice (Monthly)", target: 347, saved: 0, priority: 2, focus: true, kind: "bill", isMonthly: true, monthlyTarget: 347, dueDay: 3, due: "Monthly until about Dec" },
+    {
+      key: "homechoice",
+      name: "Home Choice (Monthly)",
+      target: 347,
+      saved: 0,
+      priority: 2,
+      focus: true,
+      kind: "bill",
+      isMonthly: true,
+      monthlyTarget: 347,
+      dueDay: 3,
+      due: "Monthly until about Dec",
+    },
 
-    { key: "buffer", name: "Emergency Buffer", target: 500, saved: 0, due: "6-week goal", priority: 3, focus: false, kind: "bill" },
-    { key: "gas", name: "Gas / Daily Needs", target: 0, saved: 0, due: "rolling", priority: 3, focus: false, kind: "bill" },
+    {
+      key: "buffer",
+      name: "Emergency Buffer",
+      target: 500,
+      saved: 0,
+      due: "6-week goal",
+      priority: 3,
+      focus: false,
+      kind: "bill",
+    },
+    {
+      key: "gas",
+      name: "Gas / Daily Needs",
+      target: 0,
+      saved: 0,
+      due: "rolling",
+      priority: 3,
+      focus: false,
+      kind: "bill",
+    },
   ];
 }
 
@@ -45,8 +243,11 @@ export function useMoneyStore() {
   const now = todayISO();
   const nowMonthKey = monthKeyFromISO(now);
 
-  const [buckets, setBuckets] = useState<Bucket[]>(() => applyMonthlyAutoAdd(now, defaultBuckets()));
+  const [buckets, setBuckets] = useState<Bucket[]>(() =>
+    applyMonthlyAutoAdd(now, defaultBuckets())
+  );
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [spend, setSpend] = useState<SpendEntry[]>([]);
 
   // load
   useEffect(() => {
@@ -74,15 +275,19 @@ export function useMoneyStore() {
 
       const last = parsed?.meta?.lastMonthlyApplied || "";
       const shouldApply = last !== monthKeyFromISO(now);
-      const fixedBuckets = shouldApply ? applyMonthlyAutoAdd(now, loadedBuckets) : loadedBuckets;
+      const fixedBuckets = shouldApply
+        ? applyMonthlyAutoAdd(now, loadedBuckets)
+        : loadedBuckets;
 
       setBuckets(fixedBuckets);
       setEntries(parsed?.entries || []);
+      setSpend(parsed?.spend || []);
 
       if (shouldApply) {
         const nextStore: StorageShape = {
           buckets: fixedBuckets,
           entries: parsed?.entries || [],
+          spend: parsed?.spend || [],
           meta: { lastMonthlyApplied: monthKeyFromISO(now) },
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(nextStore));
@@ -97,11 +302,12 @@ export function useMoneyStore() {
       const payload: StorageShape = {
         buckets,
         entries,
+        spend,
         meta: { lastMonthlyApplied: nowMonthKey },
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {}
-  }, [buckets, entries, nowMonthKey]);
+  }, [buckets, entries, spend, nowMonthKey]);
 
   const totals = useMemo(() => {
     const income = entries.reduce((s, e) => s + (e.amount || 0), 0);
@@ -126,10 +332,17 @@ export function useMoneyStore() {
         sums[k] = (sums[k] || 0) + (v || 0);
       }
     }
-    setBuckets((prev) => prev.map((b) => ({ ...b, saved: clampMoney(sums[b.key] || 0) })));
+    setBuckets((prev) =>
+      prev.map((b) => ({ ...b, saved: clampMoney(sums[b.key] || 0) }))
+    );
   }
 
-  function addIncome(params: { dateISO: string; source: Entry["source"]; amount: number; note?: string }) {
+  function addIncome(params: {
+    dateISO: string;
+    source: Entry["source"];
+    amount: number;
+    note?: string;
+  }) {
     const amt = clampMoney(params.amount);
     if (amt <= 0) return;
 
@@ -142,8 +355,38 @@ export function useMoneyStore() {
       allocations: {},
     };
 
-    const next = [newEntry, ...entries].sort((a, b) => (a.dateISO < b.dateISO ? 1 : -1));
+    const next = [newEntry, ...entries].sort((a, b) =>
+      a.dateISO < b.dateISO ? 1 : -1
+    );
     setEntries(next);
+  }
+
+  // ✅ Spend tracker actions
+  function addSpend(params: {
+    dateISO?: string;
+    amount: number;
+    category: SpendCategory;
+    note?: string;
+  }) {
+    const amt = clampMoney(params.amount);
+    if (amt <= 0) return;
+
+    const entry: SpendEntry = {
+      id: Math.random().toString(16).slice(2) + "-" + Date.now().toString(16),
+      dateISO: (params.dateISO || todayISO()).trim(),
+      amount: amt,
+      category: params.category,
+      note: params.note?.trim() || undefined,
+    };
+
+    const next = [entry, ...spend].sort((a, b) =>
+      a.dateISO < b.dateISO ? 1 : -1
+    );
+    setSpend(next);
+  }
+
+  function removeSpend(id: string) {
+    setSpend((prev) => prev.filter((s) => s.id !== id));
   }
 
   // ✅ Allocate + recompute saved + also reduce balance for credit/loan
@@ -156,7 +399,10 @@ export function useMoneyStore() {
     let remainingToAllocate = amt;
 
     for (const e of nextEntries) {
-      const allocatedInEntry = Object.values(e.allocations || {}).reduce((x, v) => x + (v || 0), 0);
+      const allocatedInEntry = Object.values(e.allocations || {}).reduce(
+        (x, v) => x + (v || 0),
+        0
+      );
       const room = clampMoney(e.amount - allocatedInEntry);
       if (room <= 0) continue;
 
@@ -195,9 +441,14 @@ export function useMoneyStore() {
               saved: clampMoney(patch.saved ?? b.saved),
               balance: patch.balance == null ? b.balance : clampMoney(patch.balance),
               apr: patch.apr == null ? b.apr : clampPercent(patch.apr),
-              minPayment: patch.minPayment == null ? b.minPayment : clampMoney(patch.minPayment),
-              creditLimit: patch.creditLimit == null ? b.creditLimit : clampMoney(patch.creditLimit),
-              monthlyTarget: patch.monthlyTarget == null ? b.monthlyTarget : clampMoney(patch.monthlyTarget),
+              minPayment:
+                patch.minPayment == null ? b.minPayment : clampMoney(patch.minPayment),
+              creditLimit:
+                patch.creditLimit == null ? b.creditLimit : clampMoney(patch.creditLimit),
+              monthlyTarget:
+                patch.monthlyTarget == null
+                  ? b.monthlyTarget
+                  : clampMoney(patch.monthlyTarget),
               dueDay: patch.dueDay == null ? b.dueDay : clampDayOfMonth(patch.dueDay),
               isMonthly: patch.isMonthly == null ? b.isMonthly : !!patch.isMonthly,
               dueDate: patch.dueDate == null ? b.dueDate : (patch.dueDate || "").trim(),
@@ -218,6 +469,7 @@ export function useMoneyStore() {
 
   function resetAll() {
     setEntries([]);
+    setSpend([]);
     setBuckets(applyMonthlyAutoAdd(now, defaultBuckets()).map((b) => ({ ...b, saved: 0 })));
     try {
       localStorage.removeItem(STORAGE_KEY);
@@ -228,9 +480,12 @@ export function useMoneyStore() {
     now,
     buckets,
     entries,
+    spend,
     totals,
     bucketsByKey,
     addIncome,
+    addSpend,
+    removeSpend,
     allocateAmount,
     updateBucket,
     addBucket,
