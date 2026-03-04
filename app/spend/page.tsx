@@ -71,7 +71,16 @@ function DonutChart({
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
 
-  const palette = ["#7c3aed", "#06b6d4", "#f59e0b", "#ef4444", "#22c55e", "#e11d48", "#3b82f6", "#a3a3a3"];
+  const palette = [
+    "#7c3aed",
+    "#06b6d4",
+    "#f59e0b",
+    "#ef4444",
+    "#22c55e",
+    "#e11d48",
+    "#3b82f6",
+    "#a3a3a3",
+  ];
 
   let acc = 0;
 
@@ -147,8 +156,14 @@ function BarChart({
         const h = Math.round((v.value / max) * 100);
         return (
           <div key={v.label} className="flex flex-col gap-2 items-center">
-            <div className="w-full rounded-xl bg-black/5 overflow-hidden" style={{ height: height - 42 }}>
-              <div className="w-full rounded-xl bg-black/30" style={{ height: `${h}%` }} />
+            <div
+              className="w-full rounded-xl bg-black/5 overflow-hidden"
+              style={{ height: height - 42 }}
+            >
+              <div
+                className="w-full rounded-xl bg-black/30"
+                style={{ height: `${h}%` }}
+              />
             </div>
             <div className="text-[11px] text-black/70 text-center leading-tight">
               <div className="font-semibold">{v.label}</div>
@@ -162,7 +177,6 @@ function BarChart({
 }
 
 export default function SpendPage() {
-  // Use the real store (so save/load stays consistent)
   const { spend, addSpend, removeSpend } = useMoneyStore();
 
   const [month, setMonth] = useState<string>(monthKeyNow());
@@ -170,19 +184,50 @@ export default function SpendPage() {
   const [category, setCategory] = useState<SpendCategory>("groceries");
   const [note, setNote] = useState<string>("");
 
-  // ✅ Optional: make sure old storage gets upgraded to include spend (non-breaking)
+  // Receipt OCR state (must be INSIDE component)
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrText, setOcrText] = useState<string>("");
+  const [ocrConfidence, setOcrConfidence] = useState<number>(0);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [ocrError, setOcrError] = useState<string>("");
+
+  // Upgrade old storage to include spend (non-breaking)
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw) as StorageShape;
 
-      if (!Array.isArray(parsed.spend)) {
-        const upgraded: StorageShape = { ...parsed, spend: [] };
+      if (!Array.isArray((parsed as any).spend)) {
+        const upgraded: StorageShape = { ...parsed, spend: [] } as StorageShape;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(upgraded));
       }
     } catch {}
   }, []);
+
+  async function runLocalOcr() {
+    if (!receiptFile) return;
+    setOcrBusy(true);
+    setOcrError("");
+    try {
+      const { text, confidence } = await ocrImageFile(receiptFile);
+      setOcrText(text);
+      setOcrConfidence(confidence);
+
+      const parsed = parseReceiptText(text);
+
+      if (parsed.total != null && Number.isFinite(parsed.total)) {
+        setAmount(String(parsed.total.toFixed(2)));
+      }
+      if (parsed.merchant) {
+        setNote((prev) => (prev.trim() ? prev : parsed.merchant!));
+      }
+    } catch (e: any) {
+      setOcrError(e?.message ? String(e.message) : "OCR failed");
+    } finally {
+      setOcrBusy(false);
+    }
+  }
 
   const entriesThisMonth = useMemo(
     () => spend.filter((s) => monthKeyFromISO(s.dateISO) === month),
@@ -194,19 +239,28 @@ export default function SpendPage() {
     return spend.filter((s) => monthKeyFromISO(s.dateISO) === pm);
   }, [spend, month]);
 
-  const totalsThis = useMemo(() => groupByCategory(entriesThisMonth), [entriesThisMonth]);
-  const totalsPrev = useMemo(() => groupByCategory(entriesPrevMonth), [entriesPrevMonth]);
+  const totalsThis = useMemo(
+    () => groupByCategory(entriesThisMonth),
+    [entriesThisMonth]
+  );
+  const totalsPrev = useMemo(
+    () => groupByCategory(entriesPrevMonth),
+    [entriesPrevMonth]
+  );
 
   const totalThis = useMemo(() => sum(Object.values(totalsThis)), [totalsThis]);
   const totalPrev = useMemo(() => sum(Object.values(totalsPrev)), [totalsPrev]);
 
   const topThis = useMemo(() => {
-    const sorted = CATEGORIES.map((c) => ({ c, v: totalsThis[c] })).sort((a, b) => b.v - a.v);
+    const sorted = CATEGORIES.map((c) => ({ c, v: totalsThis[c] })).sort(
+      (a, b) => b.v - a.v
+    );
     return sorted[0];
   }, [totalsThis]);
 
   const insight = useMemo(() => {
-    if (!topThis || totalThis <= 0) return "Log a few purchases and you’ll start seeing patterns here.";
+    if (!topThis || totalThis <= 0)
+      return "Log a few purchases and you’ll start seeing patterns here.";
     const pct = Math.round((topThis.v / totalThis) * 100);
     const prev = totalsPrev[topThis.c] || 0;
     const delta = prev === 0 ? null : Math.round(((topThis.v - prev) / prev) * 100);
@@ -219,13 +273,18 @@ export default function SpendPage() {
 
   const donutData = useMemo(
     () =>
-      CATEGORIES.map((c) => ({ label: CATEGORY_LABEL[c], value: totalsThis[c] })).filter((x) => x.value > 0),
+      CATEGORIES.map((c) => ({
+        label: CATEGORY_LABEL[c],
+        value: totalsThis[c],
+      })).filter((x) => x.value > 0),
     [totalsThis]
   );
 
   const top4Bars = useMemo(() => {
-    const sorted = CATEGORIES
-      .map((c) => ({ label: CATEGORY_LABEL[c].split(" ")[0], value: totalsThis[c] }))
+    const sorted = CATEGORIES.map((c) => ({
+      label: CATEGORY_LABEL[c].split(" ")[0],
+      value: totalsThis[c],
+    }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 4);
 
@@ -252,6 +311,10 @@ export default function SpendPage() {
 
     setAmount("");
     setNote("");
+    setReceiptFile(null);
+    setOcrError("");
+    setOcrText("");
+    setOcrConfidence(0);
   }
 
   return (
@@ -259,8 +322,12 @@ export default function SpendPage() {
       <div className="mx-auto max-w-6xl px-5 py-8">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight">Spend Tracker</h1>
-            <p className="text-sm text-black/60">Track real spending, spot leaks, and protect your buckets.</p>
+            <h1 className="text-2xl font-extrabold tracking-tight">
+              Spend Tracker
+            </h1>
+            <p className="text-sm text-black/60">
+              Track real spending, spot leaks, and protect your buckets.
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -278,11 +345,19 @@ export default function SpendPage() {
           <div className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-xs font-semibold text-black/50">This month</div>
-                <div className="mt-1 text-3xl font-extrabold">{formatUSD(totalThis)}</div>
-                <div className="mt-1 text-sm text-black/60">Last month: {formatUSD(totalPrev)}</div>
+                <div className="text-xs font-semibold text-black/50">
+                  This month
+                </div>
+                <div className="mt-1 text-3xl font-extrabold">
+                  {formatUSD(totalThis)}
+                </div>
+                <div className="mt-1 text-sm text-black/60">
+                  Last month: {formatUSD(totalPrev)}
+                </div>
               </div>
-              <DonutChart values={donutData.length ? donutData : [{ label: "None", value: 0 }]} />
+              <DonutChart
+                values={donutData.length ? donutData : [{ label: "None", value: 0 }]}
+              />
             </div>
 
             <div className="mt-4 rounded-xl bg-black/5 p-3 text-sm">
@@ -292,7 +367,9 @@ export default function SpendPage() {
           </div>
 
           <div className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-            <div className="text-xs font-semibold text-black/50">Top categories</div>
+            <div className="text-xs font-semibold text-black/50">
+              Top categories
+            </div>
             <div className="mt-4">
               <BarChart values={top4Bars} />
             </div>
@@ -330,6 +407,54 @@ export default function SpendPage() {
                 className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"
               />
 
+              {/* Receipt OCR UI */}
+              <div className="mt-3 grid gap-2">
+                <div className="text-xs font-semibold text-black/50">
+                  Receipt OCR (local)
+                </div>
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                  className="text-sm"
+                />
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={runLocalOcr}
+                    disabled={!receiptFile || ocrBusy}
+                    className="rounded-xl border border-black/10 bg-white px-3 py-2 text-xs font-semibold hover:bg-black/5 disabled:opacity-50"
+                  >
+                    {ocrBusy ? "Extracting…" : "Extract from image"}
+                  </button>
+
+                  <div className="text-xs text-black/60">
+                    {ocrText
+                      ? `Confidence: ${Math.round(ocrConfidence * 100)}%`
+                      : "Choose an image, then extract."}
+                  </div>
+                </div>
+
+                {ocrError && (
+                  <div className="text-xs font-semibold text-red-700">
+                    {ocrError}
+                  </div>
+                )}
+
+                {ocrText && (
+                  <details className="rounded-xl bg-black/5 p-3">
+                    <summary className="cursor-pointer text-xs font-semibold text-black/60">
+                      View extracted text
+                    </summary>
+                    <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-black/70">
+                      {ocrText}
+                    </pre>
+                  </details>
+                )}
+              </div>
+
               <button
                 onClick={onAdd}
                 className="rounded-xl bg-black px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
@@ -337,7 +462,9 @@ export default function SpendPage() {
                 Add spend
               </button>
 
-              <div className="text-xs text-black/50">Tip: log purchases as they happen. This becomes your reality check.</div>
+              <div className="text-xs text-black/50">
+                Tip: log purchases as they happen. This becomes your reality check.
+              </div>
             </div>
           </div>
         </div>
@@ -363,9 +490,15 @@ export default function SpendPage() {
                 {entriesThisMonth.map((e) => (
                   <tr key={e.id} className="border-t border-black/5">
                     <td className="py-2 pr-3 whitespace-nowrap">{e.dateISO}</td>
-                    <td className="py-2 pr-3 whitespace-nowrap">{CATEGORY_LABEL[e.category]}</td>
-                    <td className="py-2 pr-3 max-w-[420px] truncate text-black/70">{e.note || "—"}</td>
-                    <td className="py-2 pr-3 text-right font-semibold">{formatUSD(e.amount)}</td>
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      {CATEGORY_LABEL[e.category]}
+                    </td>
+                    <td className="py-2 pr-3 max-w-[420px] truncate text-black/70">
+                      {e.note || "—"}
+                    </td>
+                    <td className="py-2 pr-3 text-right font-semibold">
+                      {formatUSD(e.amount)}
+                    </td>
                     <td className="py-2 pr-0 text-right">
                       <button
                         onClick={() => removeSpend(e.id)}
@@ -379,7 +512,10 @@ export default function SpendPage() {
 
                 {entriesThisMonth.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-sm text-black/50">
+                    <td
+                      colSpan={5}
+                      className="py-10 text-center text-sm text-black/50"
+                    >
                       No spend logged for this month yet.
                     </td>
                   </tr>
