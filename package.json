@@ -11,6 +11,7 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "openai": "^4.56.0"
+    "tesseract.js": "^5.1.0"
   },
  "devDependencies": {
   "autoprefixer": "^10.4.0",
