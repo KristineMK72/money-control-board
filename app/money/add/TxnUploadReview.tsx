@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { ocrAndParse, type ParsedTxn } from "@/lib/money/ocr";
+import { ocrAndParse, type ParsedTxn } from "@/lib/money/receiptOcr";
 import { useMoneyStore } from "@/lib/money/store";
 import type { BucketKey } from "@/lib/money/types";
 import { btn } from "@/lib/money/ui";
