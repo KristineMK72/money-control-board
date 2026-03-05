@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useMoneyStore } from "@/lib/money/store";
 import type { Bucket, BucketKey } from "@/lib/money/types";
 import { MoneyShell, Section, btn } from "@/lib/money/ui";
@@ -31,7 +31,7 @@ function clampDayOfMonth(d: number) {
 export default function AddEditPage() {
   const store = useMoneyStore();
 
-  // ---- form state
+  // ---- form state (used for both Add + Edit)
   const [newName, setNewName] = useState("");
   const [newTarget, setNewTarget] = useState<number>(0);
   const [newDue, setNewDue] = useState("");
@@ -50,50 +50,20 @@ export default function AddEditPage() {
   const [newMonthlyTarget, setNewMonthlyTarget] = useState<number>(0);
   const [newDueDay, setNewDueDay] = useState<number>(1);
 
-  const existingKeys = useMemo(() => new Set(store.buckets.map((b) => b.key)), [store.buckets]);
+  // ✅ which bucket are we editing?
+  const [editKey, setEditKey] = useState<BucketKey | "">("");
 
-  function addBucket() {
-    const name = newName.trim();
-    if (!name) return;
+  const existingKeys = useMemo(
+    () => new Set(store.buckets.map((b) => b.key)),
+    [store.buckets]
+  );
 
-    const base = slugKey(name);
-    let key: BucketKey = base;
-    let i = 2;
-    while (existingKeys.has(key)) {
-      key = `${base}-${i++}`;
-    }
+  const editBucket = useMemo(
+    () => store.buckets.find((b) => b.key === editKey),
+    [store.buckets, editKey]
+  );
 
-    const isMonthly = !!newIsMonthly;
-
-    const bucket: Bucket = {
-      key,
-      name,
-
-      saved: 0,
-      target: Number(newTarget || 0),
-
-      due: (newDue || "").trim() || undefined,
-      // IMPORTANT: match common Bucket typing: dueDate is optional
-      // If your Bucket type uses `dueDate?: string` (optional), this is correct:
-      dueDate: (newDueDate || "").trim() || undefined,
-
-      priority: newPriority,
-      focus: newFocus,
-
-      kind: newKind,
-      balance: newBalance ? Number(newBalance) : undefined,
-      apr: newApr ? Number(newApr) : undefined,
-      minPayment: newMinPayment ? Number(newMinPayment) : undefined,
-      creditLimit: newCreditLimit ? Number(newCreditLimit) : undefined,
-
-      isMonthly,
-      monthlyTarget: isMonthly ? Number(newMonthlyTarget || newTarget || 0) : undefined,
-      dueDay: isMonthly ? clampDayOfMonth(Number(newDueDay || 1)) : undefined,
-    };
-
-    store.addBucket(bucket);
-
-    // reset
+  function resetForm() {
     setNewName("");
     setNewTarget(0);
     setNewDue("");
@@ -112,8 +82,167 @@ export default function AddEditPage() {
     setNewDueDay(1);
   }
 
+  // ✅ when user selects a bucket, load it into the form
+  useEffect(() => {
+    if (!editBucket) return;
+    setNewName(editBucket.name ?? "");
+    setNewTarget(Number(editBucket.target ?? 0));
+    setNewDue(editBucket.due ?? "");
+    setNewDueDate((editBucket as any).dueDate ?? "");
+
+    setNewPriority((editBucket.priority ?? 2) as 1 | 2 | 3);
+    setNewFocus(!!editBucket.focus);
+
+    setNewKind((editBucket.kind ?? "bill") as any);
+    setNewBalance(Number(editBucket.balance ?? 0));
+    setNewApr(Number(editBucket.apr ?? 0));
+    setNewMinPayment(Number(editBucket.minPayment ?? 0));
+    setNewCreditLimit(Number(editBucket.creditLimit ?? 0));
+
+    setNewIsMonthly(!!(editBucket as any).isMonthly);
+    setNewMonthlyTarget(Number((editBucket as any).monthlyTarget ?? 0));
+    setNewDueDay(Number((editBucket as any).dueDay ?? 1));
+  }, [editBucket]);
+
+  function buildBucketPatch(): Partial<Bucket> {
+    const name = newName.trim();
+
+    const isMonthly = !!newIsMonthly;
+
+    return {
+      name: name || undefined,
+
+      target: Number(newTarget || 0),
+
+      due: (newDue || "").trim() || undefined,
+      dueDate: (newDueDate || "").trim() || undefined,
+
+      priority: newPriority,
+      focus: newFocus,
+
+      kind: newKind,
+      balance: newBalance ? Number(newBalance) : undefined,
+      apr: newApr ? Number(newApr) : undefined,
+      minPayment: newMinPayment ? Number(newMinPayment) : undefined,
+      creditLimit: newCreditLimit ? Number(newCreditLimit) : undefined,
+
+      isMonthly,
+      monthlyTarget: isMonthly ? Number(newMonthlyTarget || newTarget || 0) : undefined,
+      dueDay: isMonthly ? clampDayOfMonth(Number(newDueDay || 1)) : undefined,
+    } as any;
+  }
+
+  function addBucket() {
+    const name = newName.trim();
+    if (!name) return;
+
+    const base = slugKey(name);
+    let key: BucketKey = base;
+    let i = 2;
+    while (existingKeys.has(key)) {
+      key = `${base}-${i++}` as BucketKey;
+    }
+
+    const patch = buildBucketPatch();
+
+    const bucket: Bucket = {
+      key,
+      // keep saved at 0 for new buckets
+      saved: 0,
+      // patch includes name/target/etc
+      ...(patch as any),
+      name,
+    };
+
+    store.addBucket(bucket);
+
+    resetForm();
+  }
+
+  function saveEdits() {
+    if (!editKey) return;
+    // (Optional) enforce name
+    const name = newName.trim();
+    if (!name) return;
+
+    store.updateBucket(editKey as BucketKey, buildBucketPatch());
+  }
+
+  function deleteSelected() {
+    if (!editKey) return;
+    const b = store.buckets.find((x) => x.key === editKey);
+    const ok = window.confirm(`Delete bucket "${b?.name ?? editKey}"? This cannot be undone.`);
+    if (!ok) return;
+
+    store.deleteBucket(editKey as BucketKey);
+    setEditKey("");
+    resetForm();
+  }
+
   return (
     <MoneyShell title="Add / Edit" subtitle="Create new bills, cards, and loans.">
+      {/* =======================
+          EDIT EXISTING
+      ======================= */}
+      <Section
+        title="Edit or delete a bucket"
+        subtitle="Select a bucket to load it into the form, then save changes or delete."
+      />
+
+      <div style={{ display: "grid", gap: 10, marginBottom: 18 }}>
+        <select
+          value={editKey}
+          onChange={(e) => setEditKey(e.target.value as any)}
+          style={{ padding: 10, borderRadius: 12, border: "1px solid rgba(0,0,0,0.15)" }}
+        >
+          <option value="">— Select a bucket —</option>
+          {store.buckets
+            .slice()
+            .sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2) || a.name.localeCompare(b.name))
+            .map((b) => (
+              <option key={b.key} value={b.key}>
+                {b.name} ({b.key})
+              </option>
+            ))}
+        </select>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={saveEdits}
+            disabled={!editKey}
+            style={btn(editKey ? "primary" : "default")}
+          >
+            Save Changes
+          </button>
+
+          <button
+            onClick={deleteSelected}
+            disabled={!editKey}
+            style={btn(editKey ? "danger" : "default")}
+          >
+            Delete Bucket
+          </button>
+
+          <button
+            onClick={() => {
+              setEditKey("");
+              resetForm();
+            }}
+            style={btn()}
+          >
+            Clear / New
+          </button>
+        </div>
+
+        <div style={{ opacity: 0.7, fontSize: 13 }}>
+          Tip: Bucket <b>key</b> stays stable. If you need renaming keys, do it as “duplicate + delete old”
+          (safer if entries reference bucket keys).
+        </div>
+      </div>
+
+      {/* =======================
+          ADD NEW
+      ======================= */}
       <Section title="Add a bucket" subtitle="Name + target are enough to start. Add details if you want." />
 
       <div style={{ display: "grid", gap: 10 }}>
@@ -232,7 +361,7 @@ export default function AddEditPage() {
         </div>
 
         <div style={{ opacity: 0.7, fontSize: 13 }}>
-          Tip: For cards/loans, set <b>Kind</b> to Credit/Loan and add a <b>Balance</b>. Allocations will reduce the balance (if your store does that).
+          Tip: For cards/loans, set <b>Kind</b> to Credit/Loan and add a <b>Balance</b>.
         </div>
       </div>
     </MoneyShell>
