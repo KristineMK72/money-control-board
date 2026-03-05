@@ -1,10 +1,17 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useMoneyStore } from "@/lib/money/store";
 import type { BucketKey, Entry } from "@/lib/money/types";
 import { fmt } from "@/lib/money/utils";
-import { MoneyShell, Section, SummaryRow, SummaryCard, IncomeForm, AllocateForm } from "@/lib/money/ui";
+import {
+  MoneyShell,
+  Section,
+  SummaryRow,
+  SummaryCard,
+  IncomeForm,
+  AllocateForm,
+} from "@/lib/money/ui";
 
 function todayISO() {
   const d = new Date();
@@ -14,25 +21,18 @@ function todayISO() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-type MoneyStoreLike = ReturnType<typeof useMoneyStore> & {
-  // optional, depending on how your store.ts is wired
-  addIncome?: (p: { dateISO: string; source: Entry["source"]; amount: number; note?: string }) => void;
-  addIncomeEntry?: (p: { dateISO: string; source: Entry["source"]; amount: number; note?: string }) => void;
-  allocateAmount?: (key: BucketKey, amt: number) => void;
-  allocate?: (key: BucketKey, amt: number) => void;
-};
-
 export default function IncomePage() {
-  const store = useMoneyStore() as MoneyStoreLike;
+  // ✅ No casting. Use the real typed store.
+  const store = useMoneyStore();
+
   const totals = store.totals;
+  const buckets = store.buckets;
 
   // Local UI state for the forms
   const [entryDate, setEntryDate] = useState<string>(todayISO());
   const [entrySource, setEntrySource] = useState<Entry["source"]>("Salon");
   const [entryAmount, setEntryAmount] = useState<number>(0);
   const [entryNote, setEntryNote] = useState<string>("");
-
-  const buckets = store.buckets;
 
   const firstBucketKey = useMemo<BucketKey>(() => {
     return (buckets[0]?.key ?? "misc") as BucketKey;
@@ -42,7 +42,7 @@ export default function IncomePage() {
   const [allocAmt, setAllocAmt] = useState<number>(0);
 
   // Keep allocKey valid if buckets load/change
-  React.useEffect(() => {
+  useEffect(() => {
     if (!buckets.find((b) => b.key === allocKey)) {
       setAllocKey(firstBucketKey);
     }
@@ -53,19 +53,12 @@ export default function IncomePage() {
     const amt = Number(entryAmount || 0);
     if (!amt || amt <= 0) return;
 
-    const payload = {
-      dateISO: entryDate, // ✅ match your Entry type
+    store.addIncome({
+      dateISO: entryDate,
       source: entrySource,
       amount: amt,
       note: entryNote.trim() || undefined,
-    };
-
-    if (typeof store.addIncomeEntry === "function") store.addIncomeEntry(payload);
-    else if (typeof store.addIncome === "function") store.addIncome(payload);
-    else {
-      console.warn("No addIncome/addIncomeEntry found on store. Wire this in lib/money/store.ts.");
-      return;
-    }
+    });
 
     setEntryAmount(0);
     setEntryNote("");
@@ -75,13 +68,7 @@ export default function IncomePage() {
     const amt = Number(allocAmt || 0);
     if (!amt || amt <= 0) return;
 
-    if (typeof store.allocateAmount === "function") store.allocateAmount(allocKey, amt);
-    else if (typeof store.allocate === "function") store.allocate(allocKey, amt);
-    else {
-      console.warn("No allocateAmount/allocate found on store. Wire this in lib/money/store.ts.");
-      return;
-    }
-
+    store.allocateAmount(allocKey, amt);
     setAllocAmt(0);
   };
 
@@ -90,7 +77,11 @@ export default function IncomePage() {
       <SummaryRow>
         <SummaryCard title="Income Logged" value={fmt(totals.income)} />
         <SummaryCard title="Allocated" value={fmt(totals.allocated)} />
-        <SummaryCard title="Unassigned" value={fmt(totals.unassigned)} hint="What you can allocate next." />
+        <SummaryCard
+          title="Unassigned"
+          value={fmt(totals.unassigned)}
+          hint="What you can allocate next."
+        />
       </SummaryRow>
 
       <Section title="Log Income" />
@@ -106,7 +97,10 @@ export default function IncomePage() {
         onAdd={onAddIncome}
       />
 
-      <Section title="Allocate Unassigned" subtitle={`Available: ${fmt(totals.unassigned)}`} />
+      <Section
+        title="Allocate Unassigned"
+        subtitle={`Available: ${fmt(totals.unassigned)}`}
+      />
       <AllocateForm
         buckets={buckets}
         allocKey={allocKey}
