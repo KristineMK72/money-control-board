@@ -9,8 +9,8 @@ import { fmt, todayISO } from "@/lib/money/utils";
 
 type RowState = {
   selected: boolean;
-  bucketKey?: BucketKey;
-  includeAsSpend?: boolean;
+  bucketKey?: BucketKey;       // for payments (credits)
+  includeAsSpend?: boolean;    // for debits (optional spend log)
 };
 
 function safeNumber(n: any) {
@@ -29,6 +29,12 @@ export default function TxnUploadReview() {
   const [rows, setRows] = useState<Record<number, RowState>>({});
   const [notePrefix, setNotePrefix] = useState("Screenshot import");
 
+  /** Always return a complete RowState */
+  function row(i: number): RowState {
+    return rows[i] ?? { selected: false };
+  }
+
+  // Prefer credit/loan buckets for payments (fallback to all buckets)
   const paymentBuckets = useMemo(() => {
     return (store.buckets || []).filter(
       (b: any) => b.kind === "credit" || b.kind === "loan"
@@ -68,10 +74,13 @@ export default function TxnUploadReview() {
       setConfidence(result.confidence);
       setRawText(result.text);
 
-      // ✅ FIX: receiptOcr returns union; we are using "transactions" mode here
+      // ✅ receiptOcr returns union type. We are in "transactions" mode:
       const parsed = (result.parsed as ParsedTxn[]) || [];
       setTxns(parsed);
 
+      // Default row state:
+      // - credits selected by default
+      // - debits unselected by default
       const nextRows: Record<number, RowState> = {};
       parsed.forEach((t, idx) => {
         nextRows[idx] = {
@@ -87,37 +96,37 @@ export default function TxnUploadReview() {
   }
 
   function toggleSelected(i: number) {
-    setRows((prev) => ({
-      ...prev,
-      [i]: { ...(prev[i] || {}), selected: !prev[i]?.selected },
-    }));
+    setRows((prev) => {
+      const cur: RowState = prev[i] ?? { selected: false };
+      return { ...prev, [i]: { ...cur, selected: !cur.selected } };
+    });
   }
 
   function setBucket(i: number, key: BucketKey) {
-    setRows((prev) => ({
-      ...prev,
-      [i]: { ...(prev[i] || {}), bucketKey: key },
-    }));
+    setRows((prev) => {
+      const cur: RowState = prev[i] ?? { selected: false };
+      return { ...prev, [i]: { ...cur, bucketKey: key } };
+    });
   }
 
   function toggleIncludeSpend(i: number) {
-    setRows((prev) => ({
-      ...prev,
-      [i]: { ...(prev[i] || {}), includeAsSpend: !prev[i]?.includeAsSpend },
-    }));
+    setRows((prev) => {
+      const cur: RowState = prev[i] ?? { selected: false };
+      return { ...prev, [i]: { ...cur, includeAsSpend: !cur.includeAsSpend } };
+    });
   }
 
   function selectAllCredits() {
     setRows((prev) => {
-      const next = { ...prev };
+      const next: Record<number, RowState> = { ...prev };
       txns.forEach((t, idx) => {
-        if (t.direction === "credit") {
-          next[idx] = {
-            ...(next[idx] || {}),
-            selected: true,
-            bucketKey: next[idx]?.bucketKey ?? defaultPaymentBucketKey,
-          };
-        }
+        if (t.direction !== "credit") return;
+        const cur: RowState = next[idx] ?? { selected: false };
+        next[idx] = {
+          ...cur,
+          selected: true,
+          bucketKey: cur.bucketKey ?? defaultPaymentBucketKey,
+        };
       });
       return next;
     });
@@ -125,10 +134,11 @@ export default function TxnUploadReview() {
 
   function clearAll() {
     setRows((prev) => {
-      const next = { ...prev };
+      const next: Record<number, RowState> = { ...prev };
       Object.keys(next).forEach((k) => {
         const i = Number(k);
-        next[i] = { ...(next[i] || {}), selected: false };
+        const cur: RowState = next[i] ?? { selected: false };
+        next[i] = { ...cur, selected: false };
       });
       return next;
     });
@@ -142,13 +152,17 @@ export default function TxnUploadReview() {
     const spendItems: Array<{ amount: number; merchant: string }> = [];
 
     txns.forEach((t, idx) => {
-      const r = rows[idx];
-      if (!r?.selected) return;
+      const r = row(idx);
+      if (!r.selected) return;
 
       if (t.direction === "credit") {
         const bk = (r.bucketKey || defaultPaymentBucketKey) as BucketKey | undefined;
         if (!bk) return;
-        paymentItems.push({ bucketKey: bk, amount: safeNumber(t.amount), merchant: t.merchant });
+        paymentItems.push({
+          bucketKey: bk,
+          amount: safeNumber(t.amount),
+          merchant: t.merchant,
+        });
       } else {
         if (r.includeAsSpend && hasAddSpend) {
           spendItems.push({ amount: safeNumber(t.amount), merchant: t.merchant });
@@ -168,10 +182,12 @@ export default function TxnUploadReview() {
       return;
     }
 
+    // Apply payments (credits) using allocateAmount
     for (const p of paymentItems) {
       store.allocateAmount(p.bucketKey, p.amount);
     }
 
+    // Optional spend logging for debits
     if (hasAddSpend) {
       for (const s of spendItems) {
         anyStore.addSpend({
@@ -244,7 +260,7 @@ export default function TxnUploadReview() {
 
           <div style={{ display: "grid", gap: 8 }}>
             {txns.map((t, idx) => {
-              const r = rows[idx] || { selected: false };
+              const r = row(idx);
               const isPayment = t.direction === "credit";
 
               return (
@@ -286,7 +302,11 @@ export default function TxnUploadReview() {
                       <select
                         value={(r.bucketKey || defaultPaymentBucketKey || "") as any}
                         onChange={(e) => setBucket(idx, e.target.value as BucketKey)}
-                        style={{ padding: 10, borderRadius: 12, border: "1px solid rgba(0,0,0,0.15)" }}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid rgba(0,0,0,0.15)",
+                        }}
                         disabled={!r.selected}
                       >
                         {(paymentBuckets.length ? paymentBuckets : store.buckets).map((b: any) => (
