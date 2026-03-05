@@ -1,31 +1,52 @@
-import { createWorker } from "tesseract.js";
+// lib/money/ocr.ts
+"use client";
 
-/**
- * Run OCR on an image file (client-side).
- * Returns raw text + a rough confidence (0..1).
- */
+import { createWorker, type Worker } from "tesseract.js";
+
+/* ============================
+   Worker singleton (reuse)
+============================ */
+
+let workerPromise: Promise<Worker> | null = null;
+
+async function getWorker() {
+  if (!workerPromise) {
+    workerPromise = (async () => {
+      const w = await createWorker("eng");
+      return w;
+    })();
+  }
+  return workerPromise;
+}
+
+export async function terminateWorker() {
+  if (!workerPromise) return;
+  const w = await workerPromise;
+  await w.terminate();
+  workerPromise = null;
+}
+
+/* ============================
+   OCR
+============================ */
+
 export async function ocrImageFile(
   file: File
 ): Promise<{ text: string; confidence: number }> {
-  const worker = await createWorker("eng");
-  try {
-    const { data } = await worker.recognize(file);
-    const text = (data.text || "").trim();
-    const confidence =
-      typeof data.confidence === "number"
-        ? Math.max(0, Math.min(1, data.confidence / 100))
-        : 0;
-    return { text, confidence };
-  } finally {
-    await worker.terminate();
-  }
+  const w = await getWorker();
+  const { data } = await w.recognize(file);
+  const text = (data.text || "").trim();
+  const confidence =
+    typeof data.confidence === "number"
+      ? Math.max(0, Math.min(1, data.confidence / 100))
+      : 0;
+  return { text, confidence };
 }
 
-/** -----------------------------
- *  Receipt parsing (single)
- *  Basic parsing: tries to find TOTAL, DATE, and MERCHANT-ish.
- *  ES5-safe (no matchAll / iterator spread).
- * ----------------------------- */
+/* ============================
+   Receipt parsing (single)
+============================ */
+
 export function parseReceiptText(text: string): {
   merchant?: string;
   dateISO?: string;
@@ -33,16 +54,14 @@ export function parseReceiptText(text: string): {
 } {
   const lines = text
     .split(/\r?\n/)
-    .map((l) => l.trim())
+    .map((l) => (l || "").trim())
     .filter(Boolean);
 
-  // Merchant guess: first reasonable text line
   const merchant =
     lines.find((l) => /[A-Za-z]/.test(l) && l.length >= 3 && l.length <= 40) ||
     lines.find((l) => /[A-Za-z]/.test(l)) ||
     undefined;
 
-  // Date guess: 2026-03-04 or 03/04/2026
   const dateISO = (() => {
     for (const l of lines) {
       const iso = l.match(/\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b/);
@@ -65,7 +84,6 @@ export function parseReceiptText(text: string): {
     return undefined;
   })();
 
-  // Money parsing helpers
   const moneyRegex = /(\$?\s*\d{1,4}(?:[,\s]\d{3})*(?:\.\d{2}))/g;
 
   function normalizeMoney(m: string): number | null {
@@ -76,7 +94,7 @@ export function parseReceiptText(text: string): {
 
   function extractMoneyValues(line: string): number[] {
     const out: number[] = [];
-    moneyRegex.lastIndex = 0; // reset because global regex
+    moneyRegex.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = moneyRegex.exec(line)) !== null) {
       const n = normalizeMoney(match[1]);
@@ -116,7 +134,6 @@ export function parseReceiptText(text: string): {
   if (totalCandidates.length) {
     total = totalCandidates[totalCandidates.length - 1];
   } else {
-    // fallback: pick largest plausible money number on receipt
     const allMoney: number[] = [];
     for (const l of lines) {
       const vals = extractMoneyValues(l);
@@ -130,46 +147,38 @@ export function parseReceiptText(text: string): {
   return { merchant, dateISO, total };
 }
 
-/** -----------------------------
- *  Screenshot parsing (multi)
- *  For bank/credit-card "Recent Transactions" screenshots.
- *  ES5-safe; returns multiple parsed items.
- * ----------------------------- */
+/* ============================
+   Transactions screenshot (multi)
+============================ */
 
 export type ParsedTxn = {
   merchant: string;
-  amount: number; // positive number
-  direction: "debit" | "credit"; // debit = spend, credit = payment/credit
-  dateText?: string; // e.g. "Mar 4, 2026, 12:45 PM"
+  amount: number;
+  direction: "debit" | "credit";
+  dateText?: string;
   pending?: boolean;
 };
 
-/**
- * Parses OCR text from a "recent transactions" screenshot into multiple txns.
- * Works best on lists like:
- *   McDonald's        -$2.77
- *   Mar 4, 2026 ...   Pending
- */
 export function parseTransactionsScreenshot(text: string): ParsedTxn[] {
   const rawLines = text
     .split(/\r?\n/)
-    .map((l) => l.trim())
+    .map((l) => (l || "").trim())
     .filter(Boolean);
 
-  // Remove common noise lines that OCR picks up
   const lines = rawLines.filter((l) => {
     const lower = l.toLowerCase();
     if (lower === "recent transactions") return false;
     if (lower.startsWith("view all")) return false;
-    if (/\bpts\b/i.test(l)) return false; // "20 pts"
+    if (/\bpts\b/i.test(l)) return false;
     if (lower.includes("activate now")) return false;
     return true;
   });
 
-  // Detect money amounts like -$2.77, +$37.97, $10.79, -10.79
   const amountRegex = /([+\-])?\s*\$?\s*(\d{1,4}(?:[,\s]\d{3})*(?:\.\d{2}))/;
 
-  function parseAmount(line: string): { amount: number; direction: "debit" | "credit" } | null {
+  function parseAmount(
+    line: string
+  ): { amount: number; direction: "debit" | "credit" } | null {
     const m = line.match(amountRegex);
     if (!m) return null;
 
@@ -178,14 +187,11 @@ export function parseTransactionsScreenshot(text: string): ParsedTxn[] {
     const n = Number(cleaned);
     if (!Number.isFinite(n) || n <= 0) return null;
 
-    // if OCR misses sign, we treat as debit by default
     const direction: "debit" | "credit" = sign === "+" ? "credit" : "debit";
     return { amount: n, direction };
   }
 
   function looksLikeDateLine(line: string): boolean {
-    // e.g. "Mar 4, 2026, 12:45 PM" or "Feb 27, 2026"
-    // Also catches numeric formats like 02/27/2026
     return (
       /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b/i.test(line) ||
       /\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b/.test(line) ||
@@ -194,30 +200,22 @@ export function parseTransactionsScreenshot(text: string): ParsedTxn[] {
   }
 
   function looksLikeMerchantLine(line: string): boolean {
-    // merchant line typically has letters and is not just a date
     if (!/[A-Za-z]/.test(line)) return false;
     if (looksLikeDateLine(line)) return false;
-    // avoid lines that are clearly statuses
     const lower = line.toLowerCase();
-    if (lower === "pending") return false;
-    if (lower === "posted") return false;
+    if (lower === "pending" || lower === "posted") return false;
     return true;
   }
 
-  // Strategy:
-  // 1) find lines that contain amounts
-  // 2) for each amount line, search backward for merchant
-  // 3) search forward/backward for date line
   const results: ParsedTxn[] = [];
-  const usedMerchantIdx: Record<number, boolean> = {};
 
   for (let i = 0; i < lines.length; i++) {
     const amt = parseAmount(lines[i]);
     if (!amt) continue;
 
-    // Find merchant line nearby (search backward up to 3 lines)
     let merchant = "";
     let merchantIdx = -1;
+
     for (let j = i; j >= 0 && j >= i - 3; j--) {
       if (looksLikeMerchantLine(lines[j])) {
         merchant = lines[j];
@@ -227,11 +225,9 @@ export function parseTransactionsScreenshot(text: string): ParsedTxn[] {
     }
     if (!merchant) continue;
 
-    // Find date line nearby (prefer next line after merchant)
     let dateText: string | undefined = undefined;
     let pending = false;
 
-    // Look forward from merchant for up to 3 lines
     for (let j = merchantIdx + 1; j < lines.length && j <= merchantIdx + 3; j++) {
       if (looksLikeDateLine(lines[j])) {
         dateText = lines[j];
@@ -240,12 +236,8 @@ export function parseTransactionsScreenshot(text: string): ParsedTxn[] {
       if (lines[j].toLowerCase().includes("pending")) pending = true;
     }
 
-    // Also check the amount line itself for "pending"
     if (lines[i].toLowerCase().includes("pending")) pending = true;
 
-    // De-dup protection: if OCR repeats the merchant line,
-    // still allow if amount differs; otherwise skip exact duplicates.
-    const key = `${merchant}|${amt.direction}|${amt.amount}|${dateText || ""}`;
     const already = results.some(
       (r) =>
         r.merchant === merchant &&
@@ -254,9 +246,6 @@ export function parseTransactionsScreenshot(text: string): ParsedTxn[] {
         (r.dateText || "") === (dateText || "")
     );
     if (already) continue;
-
-    // Mark merchant idx used (helps if OCR repeats lines)
-    if (merchantIdx >= 0) usedMerchantIdx[merchantIdx] = true;
 
     results.push({
       merchant,
@@ -267,29 +256,27 @@ export function parseTransactionsScreenshot(text: string): ParsedTxn[] {
     });
   }
 
-  // Sort by appearance order (already in order), but ensure stable output
   return results;
 }
 
-/**
- * Tiny merchant->category helper (optional).
- * You can expand this list anytime.
- */
-export function guessCategoryFromMerchant(merchant: string): string {
-  const m = merchant.toLowerCase();
+/* ============================
+   One-call helpers for UI
+============================ */
 
-  // Eating out
-  if (m.includes("mcdonald") || m.includes("kfc") || m.includes("taco") || m.includes("pizza"))
-    return "eating_out";
+export type OCRMode = "receipt" | "transactions";
 
-  // Gas
-  if (m.includes("speedway") || m.includes("kwik") || m.includes("shell") || m.includes("bp"))
-    return "gas";
+export async function ocrAndParse(
+  file: File,
+  mode: OCRMode
+): Promise<
+  | { mode: "receipt"; text: string; confidence: number; parsed: ReturnType<typeof parseReceiptText> }
+  | { mode: "transactions"; text: string; confidence: number; parsed: ParsedTxn[] }
+> {
+  const { text, confidence } = await ocrImageFile(file);
 
-  // Groceries / big box
-  if (m.includes("target") || m.includes("walmart") || m.includes("aldi") || m.includes("costco"))
-    return "groceries";
+  if (mode === "receipt") {
+    return { mode, text, confidence, parsed: parseReceiptText(text) };
+  }
 
-  // Default
-  return "misc";
+  return { mode, text, confidence, parsed: parseTransactionsScreenshot(text) };
 }
