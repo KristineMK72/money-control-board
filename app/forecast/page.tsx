@@ -1,49 +1,13 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
-
-type BucketKey = string;
-
-type Bucket = {
-  key: BucketKey;
-  name: string;
-  target: number;
-  saved: number;
-  dueDate?: string;
-  priority: 1 | 2 | 3;
-  focus?: boolean;
-};
-
-type Entry = {
-  id: string;
-  dateISO: string; // YYYY-MM-DD
-  source: "Salon" | "DoorDash" | "Other";
-  amount: number;
-  note?: string;
-  allocations: Partial<Record<BucketKey, number>>;
-};
-
-type StorageShape = {
-  buckets: Bucket[];
-  entries: Entry[];
-  meta?: { lastMonthlyApplied?: string };
-};
-
-const STORAGE_KEY = "money-control-board-v4";
+import { useMoneyStore } from "@/lib/money/store";
+import { fmt } from "@/lib/money/utils";
 
 /* =============================
-   Date / money helpers
+   Date helpers
 ============================= */
-
-function clampMoney(n: number) {
-  if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100) / 100;
-}
-
-function fmt(n: number) {
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
-}
 
 function todayISO() {
   const d = new Date();
@@ -87,6 +51,11 @@ function quarterKey(iso: string) {
   return `${y}-Q${q}`;
 }
 
+function clampMoney(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 /* =============================
    UI bits
 ============================= */
@@ -125,9 +94,10 @@ function Mini({ label, value }: { label: string; value: string }) {
 export default function ForecastPage() {
   const now = todayISO();
 
-  const [loaded, setLoaded] = useState(false);
-  const [buckets, setBuckets] = useState<Bucket[]>([]);
-  const [entries, setEntries] = useState<Entry[]>([]);
+  // ✅ LIVE: pull directly from Zustand store
+  const store = useMoneyStore();
+  const buckets = store.buckets;
+  const entries = store.entries;
 
   // baseline per week
   const [weeklyBaseline, setWeeklyBaseline] = useState<number>(350);
@@ -138,21 +108,6 @@ export default function ForecastPage() {
   const [gritProfitPerSale, setGritProfitPerSale] = useState<number>(12);
   const [gritSalesPerWeek, setGritSalesPerWeek] = useState<number>(10);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as StorageShape;
-        setBuckets(parsed.buckets || []);
-        setEntries(parsed.entries || []);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setLoaded(true);
-    }
-  }, []);
-
   const forecast = useMemo(() => {
     const w1Start = startOfWeekISO(now);
 
@@ -162,24 +117,26 @@ export default function ForecastPage() {
       return { i, start, end, label: `Week ${i + 1} (${start} → ${end})` };
     });
 
-    const remainingForBucket = (b: Bucket) => {
-      if ((b.target || 0) <= 0) return 0;
-      return clampMoney(Math.max(0, (b.target || 0) - (b.saved || 0)));
+    const remainingForBucket = (b: any) => {
+      const target = Number(b.target || 0);
+      const saved = Number(b.saved || 0);
+      if (target <= 0) return 0;
+      return clampMoney(Math.max(0, target - saved));
     };
 
     const incomeInWeek = (start: string, end: string) =>
       clampMoney(
         entries
-          .filter((e) => inRangeISO(e.dateISO, start, end))
-          .reduce((s, e) => s + (e.amount || 0), 0)
+          .filter((e: any) => inRangeISO(e.dateISO, start, end))
+          .reduce((s: number, e: any) => s + (e.amount || 0), 0)
       );
 
     const billsDueInWeek = (start: string, end: string) =>
       clampMoney(
         buckets
-          .filter((b) => (b.dueDate || "").trim())
-          .filter((b) => inRangeISO((b.dueDate || "").trim(), start, end))
-          .reduce((s, b) => s + remainingForBucket(b), 0)
+          .filter((b: any) => (b.dueDate || "").trim())
+          .filter((b: any) => inRangeISO((b.dueDate || "").trim(), start, end))
+          .reduce((s: number, b: any) => s + remainingForBucket(b), 0)
       );
 
     // Carryover pacing: week-to-week gap rolls forward
@@ -195,7 +152,7 @@ export default function ForecastPage() {
       return { ...w, bills, income, baseline: weeklyBaseline, needTotal, stillNeed };
     });
 
-    // IMPORTANT: month/quarter totals should NOT sum stillNeed (double counts carry)
+    // Month/quarter totals should NOT sum stillNeed (double-counts carry)
     const thisMonth = monthKey(now);
     const thisQuarter = quarterKey(now);
 
@@ -268,8 +225,6 @@ export default function ForecastPage() {
     gritProfitPerSale,
     gritSalesPerWeek,
   ]);
-
-  if (!loaded) return <div className={styles.loading}>Loading forecast…</div>;
 
   return (
     <div className={styles.shell}>
@@ -392,9 +347,7 @@ export default function ForecastPage() {
             <div className={styles.labelMuted} style={{ marginTop: 10 }}>
               Remaining after hustle (Week 1)
             </div>
-            <div className={styles.bigNumberSm}>
-              {fmt(forecast.hustle.remainingAfterHustle)}
-            </div>
+            <div className={styles.bigNumberSm}>{fmt(forecast.hustle.remainingAfterHustle)}</div>
 
             <div className={styles.note}>
               If you wanted to cover the rest with only:
@@ -443,9 +396,7 @@ export default function ForecastPage() {
 
 const styles = {
   shell:
-  "mx-auto w-full max-w-3xl px-4 pb-28 pt-4 text-white font-sans antialiased",
-  loading: "mx-auto w-full max-w-3xl px-4 pb-28 pt-6 text-white/80",
-
+    "mx-auto w-full max-w-3xl px-4 pb-28 pt-4 text-white font-sans antialiased",
   hero:
     "rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.06)] flex flex-col gap-4 sm:flex-row sm:items-stretch sm:justify-between",
   h1: "text-4xl font-black tracking-tight",
