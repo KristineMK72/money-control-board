@@ -9,9 +9,7 @@ import { fmt, todayISO } from "@/lib/money/utils";
 
 type RowState = {
   selected: boolean;
-  // for payments:
   bucketKey?: BucketKey;
-  // for spend:
   includeAsSpend?: boolean;
 };
 
@@ -25,13 +23,12 @@ export default function TxnUploadReview() {
 
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confidence, setConfidence] = useState<number>(0);
-  const [rawText, setRawText] = useState<string>("");
+  const [confidence, setConfidence] = useState(0);
+  const [rawText, setRawText] = useState("");
   const [txns, setTxns] = useState<ParsedTxn[]>([]);
   const [rows, setRows] = useState<Record<number, RowState>>({});
-  const [notePrefix, setNotePrefix] = useState<string>("Screenshot import");
+  const [notePrefix, setNotePrefix] = useState("Screenshot import");
 
-  // Choose a default “payment bucket” (credit/loan first; fallback to first bucket)
   const paymentBuckets = useMemo(() => {
     return (store.buckets || []).filter(
       (b: any) => b.kind === "credit" || b.kind === "loan"
@@ -59,7 +56,6 @@ export default function TxnUploadReview() {
   }, [txns, rows]);
 
   const canAllocatePayments = useMemo(() => {
-    // allocateAmount requires unassigned in your store
     return (store.totals?.unassigned ?? 0) >= totalsSelected.payments;
   }, [store.totals?.unassigned, totalsSelected.payments]);
 
@@ -72,12 +68,10 @@ export default function TxnUploadReview() {
       setConfidence(result.confidence);
       setRawText(result.text);
 
-      const parsed = result.parsed || [];
+      // ✅ FIX: receiptOcr returns union; we are using "transactions" mode here
+      const parsed = (result.parsed as ParsedTxn[]) || [];
       setTxns(parsed);
 
-      // Default row state:
-      // - credits (payments) selected by default
-      // - debits not selected (optional spend)
       const nextRows: Record<number, RowState> = {};
       parsed.forEach((t, idx) => {
         nextRows[idx] = {
@@ -141,13 +135,9 @@ export default function TxnUploadReview() {
   }
 
   async function onSave() {
-    // Save = allocate credits to buckets (payments)
-    // Optional: log debits as spend (if your store supports addSpend)
-
     const anyStore = store as any;
     const hasAddSpend = typeof anyStore.addSpend === "function";
 
-    // First, validate payment rows
     const paymentItems: Array<{ bucketKey: BucketKey; amount: number; merchant: string }> = [];
     const spendItems: Array<{ amount: number; merchant: string }> = [];
 
@@ -160,7 +150,6 @@ export default function TxnUploadReview() {
         if (!bk) return;
         paymentItems.push({ bucketKey: bk, amount: safeNumber(t.amount), merchant: t.merchant });
       } else {
-        // debit
         if (r.includeAsSpend && hasAddSpend) {
           spendItems.push({ amount: safeNumber(t.amount), merchant: t.merchant });
         }
@@ -169,7 +158,6 @@ export default function TxnUploadReview() {
 
     if (paymentItems.length === 0 && spendItems.length === 0) return;
 
-    // If payments exceed unassigned, block for now (keeps math honest)
     const totalPayments = paymentItems.reduce((s, x) => s + x.amount, 0);
     if (totalPayments > 0 && !canAllocatePayments) {
       alert(
@@ -180,24 +168,21 @@ export default function TxnUploadReview() {
       return;
     }
 
-    // Apply payments
     for (const p of paymentItems) {
       store.allocateAmount(p.bucketKey, p.amount);
     }
 
-    // Optional spends
     if (hasAddSpend) {
       for (const s of spendItems) {
         anyStore.addSpend({
           dateISO: todayISO(),
           amount: s.amount,
-          category: "misc", // keep simple; you can enhance later
+          category: "misc",
           note: `${notePrefix}: ${s.merchant}`,
         });
       }
     }
 
-    // Clear selection after save
     clearAll();
     alert("Saved ✔");
   }
@@ -238,8 +223,7 @@ export default function TxnUploadReview() {
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
             <div style={{ fontWeight: 900 }}>Parsed transactions</div>
             <div style={{ fontSize: 12, opacity: 0.75 }}>
-              Selected payments: <b>{fmt(totalsSelected.payments)}</b>
-              {" · "}
+              Selected payments: <b>{fmt(totalsSelected.payments)}</b> {" · "}
               Selected spends: <b>{fmt(totalsSelected.spends)}</b>
             </div>
           </div>
@@ -290,13 +274,8 @@ export default function TxnUploadReview() {
                     </div>
                   </div>
 
-                  {t.dateText ? (
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>{t.dateText}</div>
-                  ) : null}
-
-                  {t.pending ? (
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>Pending</div>
-                  ) : null}
+                  {t.dateText ? <div style={{ fontSize: 12, opacity: 0.7 }}>{t.dateText}</div> : null}
+                  {t.pending ? <div style={{ fontSize: 12, opacity: 0.7 }}>Pending</div> : null}
 
                   {isPayment ? (
                     <div style={{ display: "grid", gap: 6 }}>
@@ -307,11 +286,7 @@ export default function TxnUploadReview() {
                       <select
                         value={(r.bucketKey || defaultPaymentBucketKey || "") as any}
                         onChange={(e) => setBucket(idx, e.target.value as BucketKey)}
-                        style={{
-                          padding: 10,
-                          borderRadius: 12,
-                          border: "1px solid rgba(0,0,0,0.15)",
-                        }}
+                        style={{ padding: 10, borderRadius: 12, border: "1px solid rgba(0,0,0,0.15)" }}
                         disabled={!r.selected}
                       >
                         {(paymentBuckets.length ? paymentBuckets : store.buckets).map((b: any) => (
@@ -347,18 +322,12 @@ export default function TxnUploadReview() {
           </div>
 
           <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ fontSize: 12, opacity: 0.75 }}>
-              Spend note prefix (optional)
-            </div>
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Spend note prefix (optional)</div>
             <input
               value={notePrefix}
               onChange={(e) => setNotePrefix(e.target.value)}
               placeholder="Screenshot import"
-              style={{
-                padding: 10,
-                borderRadius: 12,
-                border: "1px solid rgba(0,0,0,0.15)",
-              }}
+              style={{ padding: 10, borderRadius: 12, border: "1px solid rgba(0,0,0,0.15)" }}
             />
           </div>
 
@@ -367,8 +336,8 @@ export default function TxnUploadReview() {
             style={btn("primary")}
             disabled={
               busy ||
-              (!txns.length) ||
-              (!Object.values(rows).some((r) => r?.selected)) ||
+              !txns.length ||
+              !Object.values(rows).some((r) => r?.selected) ||
               (!canAllocatePayments && totalsSelected.payments > 0)
             }
           >
@@ -377,9 +346,7 @@ export default function TxnUploadReview() {
 
           <details style={{ opacity: 0.7 }}>
             <summary style={{ cursor: "pointer" }}>Show raw OCR text</summary>
-            <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, marginTop: 8 }}>
-              {rawText}
-            </pre>
+            <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, marginTop: 8 }}>{rawText}</pre>
           </details>
         </div>
       ) : null}
